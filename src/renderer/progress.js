@@ -271,11 +271,23 @@ window.kova.onProgressChanged((info) => {
   if (view === 'progress') renderProgress()
 })
 let rankupTimer = null
+// Kovi in the pop-up, as on the mascot canvas: "Rank up" wears the new rank's
+// colour (outline, eyes, burst); "New PB" is the pink hop.
+const koviPopup = (c) =>
+  `<svg viewBox="0 0 120 200" width="52" height="86" aria-hidden="true" overflow="visible"><ellipse cx="60" cy="190" rx="30" ry="5" fill="#000" opacity="0.5"/><rect x="30" y="16" width="60" height="152" rx="30" fill="#0d0d0f" stroke="${c}" stroke-width="3"/><ellipse cx="69" cy="38" rx="13" ry="6" fill="#2c2c33" transform="rotate(-24 69 38)"/><path d="M44 74q5-9 10 0M66 74q5-9 10 0" fill="none" stroke="${c}" stroke-width="4" stroke-linecap="round"/>${
+    c === '#ff9a9a'
+      ? '<path d="M104 24v12M98 30h12M16 46v8M12 50h8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>'
+      : `<path d="M104 18v14M97 25h14M14 40v10M9 45h10M108 64v8M104 68h8" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round"/>`
+  }</svg>`
+// a rank colour comes from kova: only a plain hex reaches the markup
+const safeColor = (c) => (/^#[0-9a-f]{3,8}$/i.test(c || '') ? c : '#ff9a9a')
+
 // The rank-up pop-up, also used for a plain PB (no rank dot, no "official" note).
 function showPopup({ title, line, color = null, meta = false }) {
   const box = $('#rankup')
+  box.querySelector('.rankup-kovi').innerHTML = koviPopup(color ? safeColor(color) : '#ff9a9a')
   box.querySelector('.rankup-dot').classList.toggle('hidden', !color)
-  if (color) box.querySelector('.rankup-dot').style.background = color
+  if (color) box.querySelector('.rankup-dot').style.background = safeColor(color)
   box.querySelector('.rankup-name').textContent = title
   box.querySelector('.rankup-line').textContent = line
   box.querySelector('.rankup-meta').classList.toggle('hidden', !meta)

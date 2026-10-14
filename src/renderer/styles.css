@@ -2121,6 +2121,10 @@ button.solid:hover {
     animation: none;
   }
 }
+.rankup-kovi {
+  display: flex;
+  flex: none;
+}
 .rankup svg {
   flex: none;
 }
