@@ -913,11 +913,12 @@ const GAME_EXE = 'FPSAimTrainer.exe'
 const TASKLIST_ARGS = Object.freeze(['/FI', `IMAGENAME eq ${GAME_EXE}`, '/NH'])
 const tasklistSaysRunning = (out) => /FPSAimTrainer\.exe/i.test(String(out))
 
+// true / false, or null when tasklist itself failed - "don't know" is not "closed".
 function isGameRunning() {
   try {
     return tasklistSaysRunning(execFileSync('tasklist', TASKLIST_ARGS, { encoding: 'utf8' }))
   } catch {
-    return false
+    return null
   }
 }
 

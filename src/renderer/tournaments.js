@@ -46,11 +46,11 @@ async function renderTournaments() {
           ${KOVI_LOCKED}
           <div class="tn-live-text">
             <span class="tn-live-top">${isLive ? '<span class="status status-on">Live now</span>' : '<span class="status status-off">Up next</span>'}<span class="setting-desc">${esc(live.name)}${m.bestOf ? ` · Bo${m.bestOf}` : ''}</span></span>
-            <span class="tn-vs"><span class="tn-vs-name">You vs ${esc(m.opponent || 'TBD')}</span><span class="num tn-score">${m.myScore}–${m.oppScore}</span></span>
-            <span class="setting-desc">${m.game ? `Game ${m.game.number}: <span class="tn-scen">${esc(m.game.scenario)}</span>` : 'Waiting for pick and ban'}</span>
+            <span class="tn-vs"><span class="tn-vs-name">You vs ${esc(m.opponent || 'TBD')}</span><span class="num tn-score">${Number(m.myScore)}–${Number(m.oppScore)}</span></span>
+            <span class="setting-desc">${m.game ? `Game ${Number(m.game.number)}: <span class="tn-scen">${esc(m.game.scenario)}</span>` : 'Waiting for pick and ban'}</span>
           </div>
           <div class="tn-live-actions">
-            ${m.game?.playUrl ? `<button class="primary tn-play" data-m="${esc(m.id)}">Play game ${m.game.number}</button>` : ''}
+            ${m.game?.playUrl ? `<button class="primary tn-play" data-m="${esc(m.id)}">Play game ${Number(m.game.number)}</button>` : ''}
             <button class="tn-open" data-s="${esc(live.slug)}">Open match</button>
           </div>
         </section>`
@@ -78,7 +78,7 @@ async function renderTournaments() {
   const pastRows = res.past
     .map(
       (t) => `<div class="tn-row"><span class="pg-name"><button class="tn-name tn-open" data-s="${esc(t.slug)}">${esc(t.name)}</button><span class="pg-odds">${esc(t.startsAt ? dayLabel(keyOf(new Date(t.startsAt))) : '')}</span></span>
-        <span class="num tn-state tn-place">${t.place && t.place <= 3 ? koviChampion(18, 30) : ''}${t.place ? `${t.tied ? 'T-' : ''}${ordinal(t.place)} of ${t.of}` : '-'}</span></div>`
+        <span class="num tn-state tn-place">${t.place && t.place <= 3 ? koviChampion(18, 30) : ''}${t.place ? `${t.tied ? 'T-' : ''}${ordinal(Number(t.place))} of ${Number(t.of)}` : '-'}</span></div>`
     )
     .join('')
   el.innerHTML = `${head}

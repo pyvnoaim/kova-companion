@@ -63,7 +63,7 @@ function findInstall(rescan) {
 // synchronously, so apply/flush logic stays sync and nothing blocks on spawns.
 // Worst case the answer is ~3s stale, which every consumer tolerates (a late
 // flush waits one 4s tick; an apply mid-transition queues and gets flushed).
-let gameRunningCache = k.isGameRunning()
+let gameRunningCache = !!k.isGameRunning()
 const gameRunning = () => gameRunningCache
 // Authoritative answer, for the two paths where a stale "not running" silently
 // eats the write rather than merely delaying it: apply and flush. The poll can
@@ -74,7 +74,8 @@ const gameRunning = () => gameRunningCache
 // is the normal usage pattern, which made it look intermittent. ~50ms tasklist
 // call on a user action only; every other reader still gets the cached value.
 function gameRunningNow() {
-  noteGameRunning(k.isGameRunning())
+  const running = k.isGameRunning()
+  if (running !== null) noteGameRunning(running) // null: tasklist failed, keep what we knew
   return gameRunningCache
 }
 // When the game was first seen running, for the session recap. Both readers of
@@ -89,22 +90,29 @@ function noteGameRunning(running, clean = true) {
   if (running && gameStartedAt == null) gameStartedAt = Date.now()
   if (running && !was) kovaLiveStart()
   updateTrayIcon()
-  if (was && !running && clean) kovaLiveStop()
-  // a failed tasklist reads as "not running"; only a clean answer closes a session
-  if (was && !running && clean) {
-    onGameClosed(gameStartedAt)
+  // a failed tasklist reads as "not running", and a restart-game closes it on
+  // purpose: neither ends the session
+  const closed = was && !running && clean && !restartInFlight
+  if (closed) kovaLiveStop()
+  if (closed) {
+    onGameClosed(gameStartedAt).catch((e) => log('recap failed', e?.message))
     gameStartedAt = null
   }
 }
+let lastWatchTry = 0
 function pollGameRunning() {
   execFile('tasklist', k.TASKLIST_ARGS, { windowsHide: true }, (err, out) => {
     noteGameRunning(!err && k.tasklistSaysRunning(out), !err)
     // A running game means the install exists, so a sync that couldn't start at
     // launch (Steam not up yet, install not found) starts now - without paying
     // for a Steam re-scan on every tick while nothing is found.
-    if (gameRunningCache && kovaToken && !kovaWatcher) startKovaSync()
-    // runs only land while the game runs, so that's when the stats watch must be up
-    if (gameRunningCache && !statsWatcher) startStatsWatch()
+    // Each try can mean a Steam re-scan, so at most once a minute while it fails.
+    if (gameRunningCache && Date.now() - lastWatchTry > 60_000 && ((kovaToken && !kovaWatcher) || !statsWatcher)) {
+      lastWatchTry = Date.now()
+      if (kovaToken && !kovaWatcher) startKovaSync()
+      // runs only land while the game runs, so that's when the stats watch must be up
+      if (!statsWatcher) startStatsWatch()
+    }
   })
 }
 
@@ -1036,6 +1044,21 @@ function kovaForget() {
   saveKovaToken(null)
   kovaUser = null
   stopKovaSync()
+  // Everything that belonged to that account: a later sign-in (maybe someone
+  // else) starts clean - snipes baseline again instead of replaying old PBs.
+  clearInterval(kovaLiveTimer)
+  kovaLiveTimer = null
+  clearTimeout(kovaLiveOffTimer)
+  clearTimeout(tourneyTimer)
+  clearTimeout(snipeTimer)
+  tourneyData = null
+  challengeData = null
+  progressBench = null
+  rankSession = null
+  snipesSeen.clear()
+  const s = loadSettings()
+  delete s.snipeCursor
+  saveSettings(s)
   kovaNotify()
 }
 
@@ -1162,14 +1185,22 @@ async function startKovaSignIn() {
     token: null,
     body: JSON.stringify({ client_id: KOVA_CLIENT_ID }),
   })
-  if (!res?.ok) return { ok: false, error: "Couldn't reach kova. Check your connection and try again." }
-  const grant = await res.json()
+  const grant = res?.ok ? await res.json().catch(() => null) : null
+  if (!grant?.user_code) return { ok: false, error: "Couldn't reach kova. Check your connection and try again." }
   let interval = (grant.interval || 5) * 1000
   const expires = Date.now() + (grant.expires_in || 600) * 1000
   let timer = null
   const pending = {
     userCode: grant.user_code,
-    url: grant.verification_uri_complete || grant.verification_uri,
+    // the approval page, and only ever on kova itself: this is a server answer
+    // that ends up in the browser
+    url: [grant.verification_uri_complete, grant.verification_uri].find((u) => {
+      try {
+        return new URL(u).origin === new URL(KOVA_URL).origin
+      } catch {
+        return false
+      }
+    }) || `${KOVA_URL}/login/companion`,
     cancel: () => {
       clearTimeout(timer)
       if (kovaSignIn === pending) kovaSignIn = null
@@ -1290,6 +1321,12 @@ async function loadProgress({ source, difficulty } = {}) {
   }
   const bench = res?.ok ? await res.json().catch(() => null) : null
   if (!bench?.scenarios) return { ok: false, reason: 'offline' }
+  // KovaaK's didn't answer: keep the verified bests we had for this benchmark
+  // rather than showing a player who's played nothing
+  if (bench.scoresUnavailable && progressBench?.source === bench.source && progressBench.difficulty === bench.difficulty) {
+    const had = new Map(progressBench.scenarios.map((s) => [s.name, s.best]))
+    for (const s of bench.scenarios) s.best ??= had.get(s.name) ?? null
+  }
   progressBench = bench
   // The card shows the featured rank; opening the page is a natural moment to
   // pick up a rank-up kova has confirmed since start.
@@ -1329,11 +1366,15 @@ function sessionStep() {
   win?.webContents.send('progress-changed', {})
 }
 
-function onRunFinished(file) {
+function onRunFinished(file, attempt = 0) {
   const install = findInstall()
   if (!install) return
   const run = progress.parseRun(path.join(install, 'stats'), file)
-  if (!run) return
+  // still being written (no score row yet): try again shortly, a couple of times
+  if (!run) {
+    if (attempt < 3) setTimeout(() => onRunFinished(file, attempt + 1), 1500)
+    return
+  }
   const s = progressBench?.scenarios.find((x) => x.name.toLowerCase() === run.scenario.toLowerCase())
   // The best BEFORE this run: any earlier local run, and kova's verified best
   // when the scenario is in the loaded benchmark (it can know runs this PC doesn't).
@@ -1425,24 +1466,37 @@ ipcMain.handle('progress:stopSession', () => {
 function historyThresholds() {
   return new Map((progressBench?.scenarios || []).map((s) => [s.name.toLowerCase(), s.thresholds]))
 }
-function loadHistory() {
+async function loadHistory() {
   const install = findInstall()
   if (!install) return { ok: false, reason: 'no-install' }
-  const days = history.buildHistory(progress.allRuns(install), historyThresholds())
+  const days = history.buildHistory(await progress.allRuns(install), historyThresholds())
   return { ok: true, days, years: history.yearsOf(days) }
 }
 ipcMain.handle('history:get', () => loadHistory())
 
 // The recap moment: KovaaK's just closed. Called from the game poll on the
 // running -> closed edge with when the game was first seen running.
-function onGameClosed(startedAt) {
+async function onGameClosed(startedAt) {
   const install = findInstall()
   if (!install || !startedAt) return
-  const runs = progress.allRuns(install).filter((r) => r.ts >= startedAt)
+  const all = await progress.allRuns(install)
+  const runs = all.filter((r) => r.ts >= startedAt)
   if (!runs.length) return // opened and closed without finishing a run
-  const today = history.buildHistory(progress.allRuns(install), historyThresholds())[0]
-  const pbs = runs.length && today ? today.pbs.length : 0
-  const info = { day: history.dayKey(runs[runs.length - 1].ts), runs: runs.length, pbs, rankUps: today?.rankUps || [] }
+  // PBs and rank-ups of THIS session, against the bests from before it
+  const best = new Map()
+  for (const r of all) if (r.ts < startedAt) best.set(r.scenario.toLowerCase(), Math.max(best.get(r.scenario.toLowerCase()) ?? -Infinity, r.score))
+  const thresholds = historyThresholds()
+  const pbScenarios = new Set()
+  const rankUps = []
+  for (const r of runs) {
+    const key = r.scenario.toLowerCase()
+    const prev = best.has(key) ? best.get(key) : null
+    if (prev != null && r.score > prev) pbScenarios.add(key)
+    const up = thresholds.has(key) ? progress.rankUpFrom(thresholds.get(key), prev, r.score) : null
+    if (up) rankUps.push({ scenario: r.scenario, rank: up.rank, color: up.color || null })
+    if (prev == null || r.score > prev) best.set(key, r.score)
+  }
+  const info = { day: history.dayKey(runs[runs.length - 1].ts), runs: runs.length, pbs: pbScenarios.size, rankUps }
   log('session ended', info.runs, 'runs', info.pbs, 'PBs')
   if (!win?.isVisible() && Notification.isSupported()) {
     const n = new Notification({
@@ -1492,10 +1546,16 @@ let obs = null
 let obsRetry = null
 let obsState = { status: 'off', error: null }
 let pendingClips = [] // runs we asked OBS to save, oldest first
+const CLIP_JOB_TTL_MS = 30_000 // OBS answers in a second or two; older means it never will
+// Bumped by every stop/start: a connection from an older start ignores its own
+// results, so a save that restarts OBS twice can't leave two sockets open.
+let obsGen = 0
 const clipNotify = () => win?.webContents.send('clip-changed')
 
 function obsStop() {
+  obsGen += 1
   clearTimeout(obsRetry)
+  pendingClips = [] // their saves won't come from a closed socket
   const c = obs
   obs = null
   c?.close()
@@ -1505,6 +1565,7 @@ async function obsStart() {
   obsStop()
   const cfg = clipCfg()
   if (!cfg.on) return clipNotify()
+  const gen = obsGen
   obsState = { status: 'connecting', error: null }
   clipNotify()
   // Declared before the connect call: OBS can close the socket (a wrong password)
@@ -1515,7 +1576,8 @@ async function obsStart() {
       { host: cfg.host, port: cfg.port, password: loadObsPass() },
       {
         onEvent: (type, data) => {
-          if (type === 'ReplayBufferSaved') {
+          if (type === 'ReplayBufferSaved' && gen === obsGen) {
+            while (pendingClips[0] && Date.now() - pendingClips[0].savedAt > CLIP_JOB_TTL_MS) pendingClips.shift()
             const job = pendingClips.shift()
             // a save we didn't ask for (the streamer's own hotkey): not ours to move
             if (job) finishClip(job, data.savedReplayPath).catch((e) => log('clip failed', e?.message))
@@ -1524,14 +1586,17 @@ async function obsStart() {
         onClose: () => {
           // not up yet (the catch below handles that and retries), or closed on
           // purpose by obsStop
-          if (!conn || obs !== conn) return
+          if (!conn || obs !== conn || gen !== obsGen) return
           obs = null
+          pendingClips = []
           obsState = { status: 'error', error: 'OBS closed' }
           clipNotify()
           obsRetry = setTimeout(obsStart, OBS_RETRY_MS)
         },
       }
     )
+    // a newer start or a stop happened while this one connected: not ours any more
+    if (gen !== obsGen) return conn.close()
     obs = conn
     // The whole feature rides on the replay buffer, so switch it on if it's off.
     const st = await conn.request('GetReplayBufferStatus').catch(() => null)
@@ -1541,8 +1606,9 @@ async function obsStart() {
       })
     obsState = { status: 'connected', error: null }
   } catch (e) {
-    obs?.close()
-    obs = null
+    conn?.close() // only this attempt's socket - a newer one may be the live one
+    if (gen !== obsGen) return
+    if (obs === conn) obs = null
     obsState = { status: 'error', error: e?.message || "Couldn't reach OBS" }
     // OBS not running yet is the normal case at app start: keep trying quietly
     obsRetry = setTimeout(obsStart, OBS_RETRY_MS)
@@ -1604,7 +1670,9 @@ async function finishClip(job, src) {
     try {
       fs.renameSync(src, dest)
     } catch {
-      fs.copyFileSync(src, dest) // another drive: rename can't cross volumes
+      // another drive: rename can't cross volumes. Async - a replay buffer can be
+      // hundreds of MB, and a sync copy would freeze the window.
+      await fs.promises.copyFile(src, dest)
       fs.rmSync(src, { force: true })
     }
   }
@@ -1822,7 +1890,7 @@ async function pollSnipes() {
     const data = res?.ok ? await res.json().catch(() => null) : null
     if (!Array.isArray(data?.pbs)) return // offline or rate-limited: same cursor next time
     fresh.push(...data.pbs)
-    if (data.pbs.length) cursor = data.pbs[data.pbs.length - 1].loggedAt
+    if (data.cursor) cursor = data.cursor
     if (data.pbs.length < 100) break
   }
   saveSettings({ ...loadSettings(), snipeCursor: cursor || new Date().toISOString() })

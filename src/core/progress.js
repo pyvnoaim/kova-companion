@@ -37,28 +37,36 @@ function runDurationMs(text, endTs) {
   return ms > 0 && ms <= 2 * 3600 * 1000 ? ms : null
 }
 
+// A stats file's run, or null. `undefined` from runFromText means "not finished
+// writing yet" and is never cached, so the next read tries again.
+function runFromText(meta, text) {
+  const score = csvNum(text, 'Score')
+  if (score == null) return undefined // the summary rows land last
+  return {
+    scenario: meta.scenario,
+    ts: meta.ts, // when the run ended
+    score,
+    hits: csvNum(text, 'Hit Count'),
+    misses: csvNum(text, 'Miss Count'),
+    durationMs: runDurationMs(text, meta.ts),
+  }
+}
+
 function parseRun(dir, file) {
   if (runCache.has(file)) return runCache.get(file)
   const meta = k.statsFileScenario(file)
-  let run = null
-  if (meta) {
-    let text
-    try {
-      text = fs.readFileSync(path.join(dir, file), 'utf8')
-    } catch {
-      return null // locked mid-write: not cached, so the next read retries it
-    }
-    const score = csvNum(text, 'Score')
-    if (score != null)
-      run = {
-        scenario: meta.scenario,
-        ts: meta.ts, // when the run ended
-        score,
-        hits: csvNum(text, 'Hit Count'),
-        misses: csvNum(text, 'Miss Count'),
-        durationMs: runDurationMs(text, meta.ts),
-      }
+  if (!meta) {
+    runCache.set(file, null)
+    return null
   }
+  let text
+  try {
+    text = fs.readFileSync(path.join(dir, file), 'utf8')
+  } catch {
+    return null // locked mid-write: not cached, so the next read retries it
+  }
+  const run = runFromText(meta, text)
+  if (run === undefined) return null
   runCache.set(file, run)
   return run
 }
@@ -66,17 +74,28 @@ function parseRun(dir, file) {
 // Every run in the stats folder, oldest first. The folder can hold years of
 // play; each file is parsed once per app run (runCache), so repeat calls only
 // pay for new files.
-function allRuns(install) {
+// Async: the first call on a big stats folder reads thousands of files, and
+// doing that synchronously would freeze the window.
+async function allRuns(install) {
   const dir = path.join(install, 'stats')
   let files
   try {
-    files = fs.readdirSync(dir)
+    files = await fs.promises.readdir(dir)
   } catch {
     return []
   }
   const out = []
   for (const f of files) {
-    const run = parseRun(dir, f)
+    let run = runCache.get(f)
+    if (!runCache.has(f)) {
+      const meta = k.statsFileScenario(f)
+      if (!meta) runCache.set(f, (run = null))
+      else {
+        const text = await fs.promises.readFile(path.join(dir, f), 'utf8').catch(() => null)
+        run = text == null ? null : runFromText(meta, text)
+        if (text != null && run !== undefined) runCache.set(f, run)
+      }
+    }
     if (run) out.push(run)
   }
   return out.sort((a, b) => a.ts - b.ts)

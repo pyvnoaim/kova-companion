@@ -7,8 +7,8 @@ let challengeTeamSlug = null // the team tab you picked, kept across re-renders
 
 function placeLine(t) {
   if (t.place == null) return "You haven't played it yet"
-  const where = `You're <span class="ch-strong">${ordinal(t.place)}</span> of ${t.of}`
-  return t.behind == null ? where : `${where} · <span class="num">${esc(fmt(t.behind))}</span> behind ${ordinal(t.place - 1)}`
+  const where = `You're <span class="ch-strong">${ordinal(Number(t.place))}</span> of ${Number(t.of)}`
+  return t.behind == null ? where : `${where} · <span class="num">${esc(fmt(t.behind))}</span> behind ${ordinal(Number(t.place) - 1)}`
 }
 
 async function renderChallenge() {
@@ -37,13 +37,13 @@ async function renderChallenge() {
       : ''
   const rows = t.standings
     .map(
-      (r) => `<div class="ch-row${r.isYou ? ' ch-you' : ''}"><span class="num ch-place">${r.place}</span>
+      (r) => `<div class="ch-row${r.isYou ? ' ch-you' : ''}"><span class="num ch-place">${Number(r.place)}</span>
         <span class="ch-name">${esc(r.name)}</span><span class="num">${esc(fmt(r.score))}</span></div>`
     )
     .join('')
   const past = t.past
     .map((p) => {
-      const place = p.place == null ? "Didn't play" : `${ordinal(p.place)} of ${p.of}`
+      const place = p.place == null ? "Didn't play" : `${ordinal(Number(p.place))} of ${Number(p.of)}`
       return `<div class="tn-row"><span class="pg-name"><span class="pg-title">${esc(p.scenario)}</span>
           <span class="pg-odds">${esc(p.week)} · won by ${esc(p.winner)}</span></span>
         <span class="tn-state tn-place${p.place === 1 ? ' ch-won' : p.place == null ? ' setting-desc' : ''}">${p.place === 1 ? koviChampion(18, 30) : ''}${place}</span>
@@ -55,7 +55,7 @@ async function renderChallenge() {
       <div class="ch-head">
         ${t.place === 1 ? koviChampion(30, 50) : ''}
         <span class="pg-name">
-          <span class="pg-odds">${res.teams.length > 1 ? '' : `${esc(t.team.name)} · `}This week · ${t.daysLeft} day${t.daysLeft === 1 ? '' : 's'} left</span>
+          <span class="pg-odds">${res.teams.length > 1 ? '' : `${esc(t.team.name)} · `}This week · ${Number(t.daysLeft)} day${t.daysLeft === 1 ? '' : 's'} left</span>
           <span class="ch-scen">${esc(t.scenario)}</span>
           <span class="pg-odds">${placeLine(t)}</span>
         </span>
