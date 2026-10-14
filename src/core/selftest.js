@@ -199,8 +199,247 @@ console.log('UI.json validation: ok')
   // scenario names can contain " - " themselves; the greedy head must keep it
   const p2 = k.statsFileScenario('A - B - Challenge - 2026.01.02-03.04.05 Stats.csv')
   assert.equal(p2.scenario, 'A - B')
+  // the older builds' name: no " Stats" suffix, "Challenge Start" as the mode
+  const p3 = k.statsFileScenario('1wall6targets TE - Challenge Start - 2024.03.01-12.30.45.csv')
+  assert.equal(p3.scenario, '1wall6targets TE')
+  assert.equal(p3.ts, new Date(2024, 2, 1, 12, 30, 45).getTime())
   assert.equal(k.statsFileScenario('not a stats file.csv'), null)
+  assert.equal(k.statsFileScenario('A - Challenge - 2024.03.01-12.30.45 Stats.txt'), null)
   console.log('stats-CSV parsing: ok')
+}
+
+// session.sav: the scenario loaded right now, which re-enter / restart target.
+// Hand-built GVAS bytes in the shape the reader expects; every malformed case
+// must come back null so the caller falls back to the stats history.
+{
+  const fs2 = require('node:fs')
+  const os2 = require('node:os')
+  const path2 = require('node:path')
+  const i32 = (n) => {
+    const b = Buffer.alloc(4)
+    b.writeInt32LE(n)
+    return b
+  }
+  const fstr = (s) => Buffer.concat([i32(s.length + 1), Buffer.from(s + '\0', 'latin1')])
+  const fstr16 = (s) => Buffer.concat([i32(-(s.length + 1)), Buffer.from(s + '\0', 'utf16le')])
+  const sav = (value, type = 'StrProperty') =>
+    Buffer.concat([
+      Buffer.from('GVAS\x02\x00junk', 'latin1'),
+      fstr('ScenarioName'),
+      fstr(type),
+      Buffer.alloc(8), // int64 size
+      Buffer.from([0]), // hasGuid
+      value,
+      fstr('NextProperty'),
+    ])
+
+  assert.equal(k.sessionScenarioFromBuffer(sav(fstr('VT Pasu Novice S5'))), 'VT Pasu Novice S5')
+  assert.equal(k.sessionScenarioFromBuffer(sav(fstr16('Gauntlet Ä'))), 'Gauntlet Ä', 'UTF-16 names')
+  assert.equal(k.sessionScenarioFromBuffer(sav(fstr('x'), 'IntProperty')), null, 'wrong type')
+  assert.equal(k.sessionScenarioFromBuffer(Buffer.from('nothing to see here')), null, 'no property')
+  assert.equal(k.sessionScenarioFromBuffer(sav(fstr('VT Pasu Novice S5')).subarray(0, 70)), null, 'cut off mid-write')
+  assert.equal(k.sessionScenarioFromBuffer(sav(i32(5000))), null, 'absurd length')
+
+  const root = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'kova-session-'))
+  const sg = path2.join(root, 'Saved', 'SaveGames')
+  fs2.mkdirSync(sg, { recursive: true })
+  assert.equal(k.currentScenario(root), null, 'no session.sav: null, no throw')
+  fs2.writeFileSync(path2.join(sg, 'session.sav'), sav(fstr('1wall6targets TE')))
+  assert.equal(k.currentScenario(root), '1wall6targets TE')
+  fs2.rmSync(root, { recursive: true, force: true })
+  console.log('session.sav scenario: ok')
+}
+
+// Rank progress: odds, the page model, the session pick, rank-up detection, and
+// reading local runs from a fake stats folder.
+{
+  const fs2 = require('node:fs')
+  const os2 = require('node:os')
+  const path2 = require('node:path')
+  const p = require('./progress')
+  assert.ok(Math.abs(p.normCdf(0) - 0.5) < 1e-6)
+  assert.ok(Math.abs(p.normCdf(1.96) - 0.975) < 1e-3)
+  assert.equal(p.rankUpOdds([900, 910, 920], 930), null, 'under 5 runs: no estimate')
+  const runs = [860, 870, 880, 875, 865, 890, 872, 868]
+  const odds = p.rankUpOdds(runs, 930)
+  assert.ok(odds > 0 && odds < 0.05, 'a line far above every run is unlikely, but not impossible')
+  assert.ok(p.rankUpOdds(runs, 860) > 0.8, 'a line below most runs is likely')
+
+  const th = [
+    { rank: 'Platinum', score: 770, color: '#2FCFC2' },
+    { rank: 'Diamond', score: 850, color: '#B9F2FF' },
+    { rank: 'Jade', score: 930, color: '#85FA85' },
+    { rank: 'Master', score: 980, color: '#EC44CA' },
+  ]
+  const local = new Map([['vt pasu intermediate s5', runs.map((score, i) => ({ score, ts: i }))]])
+  const [row] = p.buildProgress([{ name: 'VT Pasu Intermediate S5', thresholds: th, best: 896 }], local)
+  assert.equal(row.best, 896, "kova's verified best wins when it's higher than any local run")
+  assert.equal(row.rank.name, 'Diamond')
+  assert.equal(row.next.name, 'Jade')
+  assert.equal(row.toNext, 34)
+  assert.ok(Math.abs(row.pct - (896 - 850) / 80) < 1e-9)
+  const [fresh] = p.buildProgress([{ name: 'VT Pasu Intermediate S5', thresholds: th, best: 850 }], local)
+  assert.equal(fresh.best, 890, 'a newer local run beats a lagging kova best')
+  const [none] = p.buildProgress([{ name: 'Unplayed', thresholds: th, best: null }], new Map())
+  assert.equal(none.rank, null)
+  assert.equal(none.next.name, 'Platinum')
+  assert.equal(none.odds, null)
+
+  assert.deepEqual(
+    p.pickSession([
+      { name: 'a', next: {}, odds: 0.05 },
+      { name: 'b', next: {}, odds: 0.3 },
+      { name: 'c', next: null, odds: null }, // maxed: nothing to rank up
+      { name: 'd', next: {}, odds: 0.001 }, // hopeless: left out
+    ]),
+    ['b', 'a']
+  )
+  assert.equal(p.rankUpFrom(th, 896, 934).rank, 'Jade')
+  assert.equal(p.rankUpFrom(th, 896, 920), null, 'a PB inside the same tier is not a rank-up')
+  assert.equal(p.rankUpFrom(th, null, 800).rank, 'Platinum', 'first run ever can rank up')
+
+  const root = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'kova-progress-'))
+  const stats = path2.join(root, 'stats')
+  fs2.mkdirSync(stats)
+  fs2.writeFileSync(path2.join(stats, 'VT Pasu Intermediate S5 - Challenge - 2026.10.14-20.00.00 Stats.csv'), 'Kill #,Timestamp\n\nScore:,912.5\nHit Count:,80\n')
+  fs2.writeFileSync(path2.join(stats, 'Other Scenario - Challenge - 2026.10.14-20.05.00 Stats.csv'), 'Score:,1\n')
+  const got = p.localRuns(root, ['VT Pasu Intermediate S5'])
+  assert.deepEqual([...got.keys()], ['vt pasu intermediate s5'], 'only the asked-for scenarios are read')
+  assert.equal(got.get('vt pasu intermediate s5')[0].score, 912.5)
+  fs2.rmSync(root, { recursive: true, force: true })
+  console.log('rank progress: ok')
+}
+
+// Session history: days, sessions split by breaks, PBs and rank-ups as they
+// were at the time, and the duration read from "Challenge Start".
+{
+  const p = require('./progress')
+  const h = require('./history')
+  const at = (y, mo, d, hh, mm) => new Date(y, mo - 1, d, hh, mm).getTime()
+  const run = (scenario, ts, score, durMin = 1) => ({ scenario, ts, score, hits: 9, misses: 1, durationMs: durMin * 60000 })
+  const runs = [
+    run('Pasu', at(2026, 7, 28, 19, 0), 880), // first ever: not a PB
+    run('Pasu', at(2026, 7, 28, 19, 2), 900), // PB +20
+    run('Pasu', at(2026, 7, 28, 19, 4), 890),
+    run('Popcorn', at(2026, 7, 28, 21, 0), 700), // 2h break: a second session
+    run('Pasu', at(2026, 7, 30, 18, 0), 934), // next day: PB, crosses Jade
+  ]
+  const th = new Map([['pasu', [{ rank: 'Diamond', score: 850 }, { rank: 'Jade', score: 930 }]]])
+  const days = h.buildHistory(runs, th)
+  assert.deepEqual(days.map((d) => d.key), ['2026-07-30', '2026-07-28'], 'newest day first')
+  const d28 = days[1]
+  assert.equal(d28.runs, 4)
+  assert.equal(d28.sessions, 2, 'a 2h break splits the day')
+  assert.equal(d28.pbCount, 1, "the first-ever run isn't a PB")
+  assert.deepEqual(d28.pbs, [{ scenario: 'Pasu', score: 900, gain: 20, rankUp: null }])
+  assert.equal(d28.playMs, 4 * 60000)
+  assert.equal(d28.played[0].scenario, 'Pasu')
+  assert.ok(Math.abs(d28.played[0].acc - 0.9) < 1e-9)
+  assert.deepEqual(days[0].rankUps, [{ scenario: 'Pasu', rank: 'Jade', color: null }])
+  assert.equal(days[0].pbs[0].gain, 34, 'gain is over the best from before that day')
+  const years = h.yearsOf(days)
+  assert.deepEqual(years.map((y) => [y.year, y.runs, y.days, y.pbs]), [[2026, 5, 2, 2]])
+  // "Challenge Start" is a clock time: a run ending 00:00:30 that started 23:59:00
+  const end = at(2026, 7, 29, 0, 0) + 30000
+  assert.equal(p.runDurationMs('Challenge Start:,23:59:00.000\n', end), 90000, 'across midnight')
+  assert.equal(p.runDurationMs('no such row', end), null)
+  console.log('session history: ok')
+}
+
+// Autoclipper: which runs, file names, the cut, and OBS's auth handshake.
+{
+  const c = require('./clipper')
+  const path2 = require('node:path')
+  const run = { scenario: 'VT Pasu Intermediate S5', ts: new Date(2026, 6, 28, 20, 41, 5).getTime(), score: 934, durationMs: 60000 }
+  assert.deepEqual(c.clipReason('pb', run, 896, null), { why: 'pb', gain: 38 })
+  assert.equal(c.clipReason('pb', run, null, null), null, 'a first-ever run is not a PB')
+  assert.equal(c.clipReason('pb', run, 940, null), null)
+  assert.equal(c.clipReason('rankup', run, 896, null), null, 'a PB without a rank-up, in rank-up mode')
+  assert.equal(c.clipReason('rankup', run, 896, 'Jade').rank, 'Jade')
+  assert.equal(c.clipReason('every', run, 999, null).why, 'run')
+  assert.equal(
+    c.clipPath('D:\\Clips', run, '.mkv'),
+    path2.join('D:\\Clips', 'VT Pasu Intermediate S5', 'VT Pasu Intermediate S5 - 934 - 2026-07-28 20.41.05.mkv')
+  )
+  assert.equal(c.safeName('a<b>:c?*. '), 'abc', 'Windows-illegal characters and a trailing dot go')
+  assert.equal(c.safeName('CON'), '_CON', 'reserved device names get a prefix')
+  // saved 3s after a 60s run ended: cut 3 + 60 + 3 seconds from the end
+  assert.equal(c.trimFromEndS(run, run.ts + 3000), 66)
+  assert.equal(c.trimFromEndS({ ...run, durationMs: null }, run.ts), null, 'unknown start: keep the whole buffer')
+  // the worked example from OBS's own protocol docs (obs-websocket protocol.md)
+  assert.equal(
+    c.obsAuth('supersecretpassword', 'lM1GncleQOaCu9lT1yeUZhFYnqhsLLP1G5lAGo3ixaI=', '+IxH4CnCiqpX1rM9scsNynZzbOe4KhDeYcTNS3PDaeY='),
+    '1Ct943GAT+6YQUUX47Ia/ncufilbe6+oD6lY+5kaCu4='
+  )
+  console.log('autoclipper: ok')
+}
+
+// kova sync payload, against a fake install. This is what ends up on someone's
+// profile and stream, and each field has a wrong-but-plausible failure.
+{
+  const fs2 = require('node:fs')
+  const os2 = require('node:os')
+  const path2 = require('node:path')
+  const c = require('./companion')
+  const root = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'kova-sync-'))
+  const sg = path2.join(root, 'Saved', 'SaveGames')
+  fs2.mkdirSync(path2.join(sg, 'Themes'), { recursive: true })
+  fs2.writeFileSync(
+    path2.join(sg, 'weaponsettings.ini'),
+    '﻿CrosshairFile=ZeeqPlus2.png\r\nCrosshairScale=1.0\r\nBodyHitSound=Porphyr2.ogg\r\nHitSoundCooldown=0.03\r\n[Rifle]\r\nHitSoundCooldown=9\r\n'
+  )
+  fs2.writeFileSync(
+    path2.join(sg, 'PrimaryUserSettings.json'),
+    JSON.stringify({
+      stringSettings: { 'EStringSettingId::CurrentThemeName': '!KovaPreset - Old', 'EStringSettingId::SensScaleString': 'cm/360', 'EStringSettingId::FOVScale': 'Overwatch' },
+      floatSettings: { 'EFloatSettingId::XSens': 37, 'EFloatSettingId::FOV': 103 },
+      integerSettings: { 'EIntegerSettingId::DPI': 3200 },
+    })
+  )
+  // mid-session live swap: the proxy file carries the theme actually on screen
+  k.writeProxyTheme(root, { vectorSettings: { WallColor: [0.1, 0.1, 0.1] } }, '!KovaPreset - Misery')
+  assert.deepEqual(c.setupPayload(root), {
+    dpi: 3200,
+    sens: 37,
+    sensScale: 'cm/360',
+    fov: 103,
+    fovScale: 'Overwatch',
+    theme: 'Misery', // the proxy's, unwrapped - not the stale launch name
+    crosshair: 'ZeeqPlus2',
+    crosshairScale: 1,
+    hitSound: 'Porphyr2',
+    soundCooldown: 0.03, // the global block, not the [Rifle] override
+  })
+  assert.equal(c.scanKey({ 'EFloatSettingId::FOVOther': 1 }, /^FOV$/i), null, 'anchored, not substring')
+  assert.equal(c.scanWeaponIni(path2.join(root, 'missing'), /cooldown/i), null, 'no install, no throw')
+  fs2.rmSync(root, { recursive: true, force: true })
+  console.log('kova sync payload: ok')
+
+  const local = new Map([['pasu', [{ score: 900 }, { score: 950 }]]])
+  const snipes = c.pickSnipes(
+    [
+      { id: 'a', scenario: 'Pasu', score: 960 }, // beats 950, matched case-insensitively
+      { id: 'b', scenario: 'Pasu', score: 950 }, // a tie isn't a snipe
+      { id: 'c', scenario: 'Never Played', score: 1 },
+    ],
+    local
+  )
+  assert.deepEqual(snipes.map((s) => [s.id, s.mine]), [['a', 950]])
+  console.log('snipe picks: ok')
+
+  const pr = require('./progress')
+  const DAY = 24 * 60 * 60 * 1000
+  const now = 100 * DAY
+  const th = [{ rank: 'Gold', score: 800 }, { rank: 'Jade', score: 900 }, { rank: 'Master', score: 1000 }]
+  const runs = [{ ts: now - 50 * DAY, score: 870 }, { ts: now - 20 * DAY, score: 850 }, { ts: now - 10 * DAY, score: 880 }, { ts: now - 5 * DAY, score: 910 }]
+  const ch = pr.scenarioChart(runs, th, 30, now)
+  assert.equal(ch.points.length, 3, 'only runs inside the range')
+  assert.deepEqual(ch.points.map((p) => p.pb), [false, true, true], '870 from before the range is the best to beat')
+  assert.deepEqual(ch.lines.map((l) => l.name), ['Jade', 'Master'], 'the rank you are on and the next')
+  assert.ok(ch.best[0][0] === 0 && ch.best.at(-1)[0] === 1, 'best line spans the chart')
+  assert.ok(ch.points.every((p) => p.y > 0 && p.y < 1) && ch.lines.every((l) => l.y > 0 && l.y < 1), 'all inside')
+  assert.equal(pr.scenarioChart([], th, 30, now).points.length, 0, 'no runs, empty chart')
+  console.log('score graph: ok')
 }
 
 const install = k.findInstall()

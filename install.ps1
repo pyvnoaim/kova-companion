@@ -1,14 +1,14 @@
-# KovaPresets installer.
+# kova companion installer.
 #
 #   irm pyvno.xyz/install.ps1 | iex
 #
 # Downloads the newest release from GitHub and runs it. No admin rights needed -
-# KovaPresets installs for the current user only.
+# kova companion installs for the current user only.
 
 $ErrorActionPreference = 'Stop'
 # $IsWindows only exists on pwsh 6+; Windows PowerShell 5.1 is Windows-only anyway.
 if ($env:OS -ne 'Windows_NT') {
-  Write-Host 'KovaPresets is Windows-only. This looks like macOS/Linux - the installer would download a .exe it cannot run.' -ForegroundColor Red
+  Write-Host 'kova companion is Windows-only. This looks like macOS/Linux - the installer would download a .exe it cannot run.' -ForegroundColor Red
   return
 }
 $prevProgress = $ProgressPreference
@@ -35,7 +35,7 @@ function Write-Done([string]$text) {
 
 function Get-FileWithProgress([string]$url, [string]$path) {
   $req = [Net.HttpWebRequest]::Create($url)
-  $req.UserAgent = 'kovapresets-install'
+  $req.UserAgent = 'kova-companion-install'
   $resp = $req.GetResponse()
   $total = $resp.ContentLength
   $in  = $resp.GetResponseStream()
@@ -69,14 +69,14 @@ function Get-FileWithProgress([string]$url, [string]$path) {
 
 try {
   Write-Host ''
-  Write-Host '  KovaPresets' -ForegroundColor White
+  Write-Host '  kova companion' -ForegroundColor White
   Write-Host "  $rule" -ForegroundColor DarkGray
-  Write-Host '  Presets for KovaaK'"'"'s - crosshairs, themes, sounds, HUD.' -ForegroundColor DarkGray
+  Write-Host '  Companion for KovaaK'"'"'s - presets, HUD layout, your kova profile.' -ForegroundColor DarkGray
   Write-Host ''
 
   Write-Step 'Looking up the latest release...'
   $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{
-    'User-Agent' = 'kovapresets-install'
+    'User-Agent' = 'kova-companion-install'
   }
   $asset = $release.assets | Where-Object { $_.name -like '*.exe' } | Select-Object -First 1
   if (-not $asset) { throw "The latest release ($($release.tag_name)) has no installer attached." }
@@ -108,7 +108,7 @@ try {
   Write-Done 'Installed'
 
   Write-Host ''
-  Write-Host "  $chk Done. KovaPresets is in your Start menu." -ForegroundColor Green
+  Write-Host "  $chk Done. kova companion is in your Start menu." -ForegroundColor Green
   Write-Host '    It updates itself from here on, no need to run this again.' -ForegroundColor DarkGray
   Write-Host ''
 } catch {

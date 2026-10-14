@@ -1,4 +1,4 @@
-# KovaPresets
+# kova companion
 
 Save your KovaaK's **crosshair, theme, sounds and sens** as presets and
 switch between them with one click, or a global hotkey, without alt-tabbing out of
@@ -17,11 +17,11 @@ Paste this into PowerShell:
 irm pyvno.xyz/install.ps1 | iex
 ```
 
-That grabs the newest release and runs it. No admin rights needed, KovaPresets
+That grabs the newest release and runs it. No admin rights needed, kova companion
 installs for your user only, and it finds your KovaaK's install through Steam by
 itself. From then on the app updates itself, so you only ever run this once.
 
-Prefer clicking? Download the **KovaPresets Setup exe** from the
+Prefer clicking? Download the **kova companion setup exe** from the
 [releases page](https://github.com/pyvnoaim/kovapresets/releases/latest) instead.
 Windows SmartScreen will warn you the first time you run a downloaded copy,
 because the installer isn't code-signed yet, click **More info → Run anyway**.
@@ -51,7 +51,7 @@ Beyond switching presets:
   apply immediately while KovaaK's is closed, or queue for its next quit.
 - **Import / export** — share a preset as a `.kovapreset.json` file.
 - **Restore original setup** — puts every setting back to how it was before
-  KovaPresets ever touched it.
+  kova companion ever touched it.
 - **Tray resident** — closing the window keeps hotkeys alive in the tray, and it can
   start with Windows.
 
@@ -59,7 +59,7 @@ Beyond switching presets:
 
 KovaaK's keeps its settings as plain text under
 `<SteamLibrary>\steamapps\common\FPSAimTrainer\FPSAimTrainer\Saved\SaveGames\`.
-KovaPresets reads and writes those same files, nothing more:
+kova companion reads and writes those same files, nothing more:
 
 | What | File |
 |---|---|
@@ -72,7 +72,7 @@ Two of those reload at different times, which is why the table above lists
 different "applies" moments. `weaponsettings.ini` is re-read whenever a scenario
 loads. `PrimaryUserSettings.json` is only read when the game launches, but the
 **selected theme's** definition file is re-read every time you open the in game
-settings screen. KovaPresets uses that: it owns one proxy theme file called
+settings screen. kova companion uses that: it owns one proxy theme file called
 `!KovaPreset`, and applying a preset rewrites it, so themes can swap live.
 
 That scenario-entry reload does **not** cover sens, despite `weaponsettings.ini`

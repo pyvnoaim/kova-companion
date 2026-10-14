@@ -5,3 +5,7 @@ out/
 # personal preset exports saved into the repo folder
 *.kovapreset.json
 .DS_Store
+# the autoclipper's ffmpeg: built by scripts/build-ffmpeg.sh (CI), fetched by
+# scripts/fetch-ffmpeg.js at release time - a binary never goes into git
+vendor/
+build/ffmpeg-src/

@@ -1,8 +1,8 @@
 {
-  "name": "kovapreset",
+  "name": "kova-companion",
   "version": "2.0.1",
   "private": true,
-  "description": "Switch KovaaK's theme / crosshair / sound presets, live while the game is open.",
+  "description": "Companion app for KovaaK's: presets, HUD layout and your kova profile, live while the game is open.",
   "author": "pyvnoaim",
   "license": "MIT",
   "repository": {
@@ -33,7 +33,7 @@
   },
   "build": {
     "appId": "app.kova.presets",
-    "productName": "KovaPresets",
+    "productName": "kova companion",
     "files": [
       "src/**/*"
     ],
@@ -54,14 +54,26 @@
           ]
         }
       ],
-      "icon": "src/assets/app.ico"
+      "icon": "src/assets/app.ico",
+      "extraResources": [
+        {
+          "from": "vendor/ffmpeg",
+          "to": "ffmpeg",
+          "filter": [
+            "ffmpeg.exe",
+            "LICENSE.md",
+            "SOURCE.md"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "shortcutName": "KovaPresets",
-      "uninstallDisplayName": "KovaPresets",
-      "deleteAppDataOnUninstall": false
+      "shortcutName": "kova companion",
+      "uninstallDisplayName": "kova companion",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "kova-companion-setup-${version}.${ext}"
     }
   }
 }

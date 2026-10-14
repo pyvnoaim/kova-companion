@@ -148,7 +148,7 @@ function hudRender() {
       rz.addEventListener('dblclick', () => {
         delete hudSizeOverrides[item.name]
         localStorage.setItem('hudSizeOverrides', JSON.stringify(hudSizeOverrides))
-        toast(`${esc(item.name)} size reset to the built-in estimate.`, 'ok')
+        toast(`${esc(item.name)} size reset.`)
         hudRender()
       })
     canvas.appendChild(el)
@@ -422,7 +422,7 @@ function hudStartResize(item, el, e) {
     const h = parseFloat(el.dataset.h || size.h)
     const s = item.scale ?? 1
     saveSizeOverride(item.name, w / s, h / s)
-    toast(`Calibrated ${esc(item.name)} to ${Math.round(w)}×${Math.round(h)}.`, 'ok')
+    toast(`${esc(item.name)} calibrated.`)
     hudRender()
   }
   window.addEventListener('pointermove', move)
@@ -515,6 +515,7 @@ function hudAlign(mode) {
   hudCommit()
 }
 
+/* exported hudOpen, hudLeave -- called by the sidebar in renderer.js */
 // ---- open/close/save ----------------------------------------------------------
 function hudOpen() {
   if (!current?.install) return
@@ -540,16 +541,18 @@ function hudOpen() {
 
 function hudClose() {
   $('#hud-view').classList.add('hidden')
-  $('#content').classList.remove('hidden')
+  setView('presets')
   refresh()
 }
 
-$('#open-hud').addEventListener('click', hudOpen)
-$('#hud-cancel').addEventListener('click', async () => {
+// Leaving the editor through the sidebar. Resolves false when the user keeps
+// their unsaved edits, so the nav stays put.
+async function hudLeave() {
   if (hud.dirty && !(await appConfirm('Discard your HUD changes?', { okLabel: 'Discard', danger: true })))
-    return
-  hudClose()
-})
+    return false
+  $('#hud-view').classList.add('hidden')
+  return true
+}
 $('#hud-undo').addEventListener('click', hudUndo)
 $('#hud-redo').addEventListener('click', hudRedo)
 $('#hud-reset').addEventListener('click', () => {
@@ -562,9 +565,9 @@ $('#hud-save').addEventListener('click', async () => {
   hudClose()
   toast(
     status === 'queued'
-      ? "HUD layout saved - applies when you quit KovaaK's."
-      : "HUD layout saved - live next time you launch KovaaK's.",
-    status === 'queued' ? 'warn' : 'ok'
+      ? "HUD saved. Applies when you quit KovaaK's."
+      : 'HUD saved. Live on next launch.',
+    status === 'queued' ? 'warn' : ''
   )
 })
 $('#hud-sel-scale').addEventListener('input', (e) => {

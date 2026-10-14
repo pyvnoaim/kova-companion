@@ -3,28 +3,24 @@
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
-    <title>KovaPresets</title>
+    <title>kova companion</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="topbar">
+    <!-- Title bar = drag region of the frameless window. Only app-wide state lives
+         here: the game, an update, and the caption buttons. -->
+    <header class="titlebar">
       <div class="brand">
-        <span>KovaPresets.</span>
+        <!-- Kovi: awake while KovaaK's runs, asleep otherwise (body[data-game]) -->
+        <svg class="kovi kovi-awake" viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="1.5" width="9" height="21" rx="4.5" class="kovi-body"/><rect x="9.5" y="7" width="1.8" height="3.2" rx="0.9" class="kovi-eye"/><rect x="12.7" y="7" width="1.8" height="3.2" rx="0.9" class="kovi-eye"/></svg>
+        <svg class="kovi kovi-asleep" viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="1.5" width="9" height="21" rx="4.5" class="kovi-body"/><path d="M9.6 9.2h1.6M12.8 9.2h1.6" class="kovi-shut"/></svg>
+        <span class="wordmark">kova companion</span>
       </div>
-      <div class="topbar-right">
-        <div id="theme-seg" class="seg">
-          <button data-theme="system" data-tip="Follow system">System</button>
-          <button data-theme="light" data-tip="Light theme">Light</button>
-          <button data-theme="dark" data-tip="Dark theme">Dark</button>
-        </div>
+      <div class="titlebar-right">
+        <span id="game-pill" class="status">KovaaK's: checking…</span>
         <!-- Stays put until it's clicked: the app lives in the tray, so a toast
              is not enough on its own to tell anyone an update is waiting. -->
-        <button id="update-btn" class="primary hidden" data-tip="An update is downloaded - restart to install it"></button>
-        <span id="game-pill" class="pill pill-off">KovaaK's: checking…</span>
-        <button id="launch" class="ghost hidden" data-tip="Launch KovaaK's via Steam">Launch</button>
-        <button id="health" class="ghost" data-tip="Health check" aria-label="Health check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2 6 4-12 2 6h6"/></svg></button>
-        <button id="help" class="ghost" data-tip="How KovaPresets works">?</button>
-        <button id="refresh" class="ghost" data-tip="Re-scan install &amp; game state"><span class="ricon">↻</span></button>
+        <button id="update-btn" class="hidden" data-tip="An update is downloaded - restart to install it"></button>
       </div>
       <div class="win-controls">
         <button id="win-min" aria-label="Minimize" data-tip="Minimize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
@@ -32,186 +28,335 @@
       </div>
     </header>
 
-    <main id="app">
-      <section id="not-found" class="panel hidden">
-        <h2>KovaaK's not found</h2>
-        <p class="muted">Couldn't locate a KovaaK's (FPSAimTrainer) install via Steam. Make sure it's installed, then hit ↻.</p>
-      </section>
-
-      <section id="content" class="hidden">
-        <div class="section-head">
-          <h2>Active setup</h2>
-          <div class="section-actions">
-            <button id="deactivate" class="hidden tip-wrap" data-tip="Put every setting back to how it was before KovaPresets applied anything">Restore original setup</button>
-            <button id="open-hud">HUD Editor</button>
-            <button id="capture">Capture as preset</button>
-          </div>
+    <div class="shell">
+      <nav class="sidebar" aria-label="Tools">
+        <!-- kova account card: filled by renderKova() (signed out / waiting / you) -->
+        <div id="kova-card" class="kova-card"></div>
+        <div class="nav-group">
+          <span class="nav-label">Setup</span>
+          <button class="nav-item" data-view="presets">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l10 5-10 5L2 7l10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            Presets
+          </button>
+          <button class="nav-item" data-view="hud">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+            HUD layout
+          </button>
         </div>
-        <div id="active" class="active-grid"></div>
-
-        <div class="section-head">
-          <h2>Presets</h2>
-          <div class="section-actions">
-            <span id="preset-count" class="muted"></span>
-            <button id="import" data-tip="Import presets from a shared file">Import</button>
-            <button id="toggle-builder">New preset</button>
-          </div>
+        <div class="nav-group">
+          <span class="nav-label">Progress</span>
+          <button class="nav-item" data-view="progress">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 7l-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></svg>
+            Rank progress
+          </button>
+          <button class="nav-item" data-view="sessions">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            Sessions
+          </button>
         </div>
+        <div class="nav-group">
+          <span class="nav-label">Compete</span>
+          <button class="nav-item" data-view="tournaments">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.7V17c0 .6-.5 1-1 1.2-1.2.5-2 2-2 3.8"/><path d="M14 14.7V17c0 .6.5 1 1 1.2 1.2.5 2 2 2 3.8"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>
+            Tournaments
+            <span class="nav-live hidden" aria-label="A match is live"></span>
+          </button>
+          <button class="nav-item" data-view="challenge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/></svg>
+            Weekly challenge
+          </button>
+        </div>
+        <div class="nav-group">
+          <span class="nav-label">Stream</span>
+          <button class="nav-item" data-view="clips">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 13l5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
+            Autoclipper
+          </button>
+        </div>
+        <div class="nav-spacer"></div>
+        <button class="nav-item" data-view="settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
+          Settings
+        </button>
+      </nav>
 
-        <div id="builder" class="builder hidden">
-          <div class="builder-grid">
-            <label class="field">
-              <span class="field-label">Name</span>
-              <input id="b-name" type="text" placeholder="My preset" spellcheck="false" />
+      <main id="app">
+        <section id="not-found" class="view hidden">
+          <div class="page-head">
+            <div class="page-title">
+              <h1>KovaaK's not found</h1>
+              <p class="lead">Couldn't find a KovaaK's (FPSAimTrainer) install through Steam. Install it, then re-scan.</p>
+            </div>
+          </div>
+          <div id="nf-empty"></div>
+        </section>
+
+        <!-- PRESETS -->
+        <section id="content" class="view hidden">
+          <div class="page-head">
+            <div class="page-title">
+              <h1>Presets</h1>
+              <p class="lead">Swap theme, crosshair and sounds without leaving the game.</p>
+            </div>
+            <div class="page-actions">
+              <button id="import" data-tip="Import presets from a shared file">Import</button>
+              <button id="toggle-builder" class="primary">New preset</button>
+            </div>
+          </div>
+          <!-- shown only while the game is closed (body[data-game]) -->
+          <div id="closed-note" class="closed-note"></div>
+
+          <div id="builder" class="builder hidden">
+            <div class="builder-grid">
+              <label class="field">
+                <span class="field-label">Name</span>
+                <input id="b-name" type="text" placeholder="My preset" spellcheck="false" />
+              </label>
+              <label class="field">
+                <span class="field-label">Theme</span>
+                <input id="b-theme" type="text" placeholder="Search themes…" spellcheck="false" />
+              </label>
+              <label class="field">
+                <span class="field-label">Crosshair</span>
+                <input id="b-crosshair" type="text" placeholder="Search crosshairs…" spellcheck="false" />
+              </label>
+              <label class="field tip-wrap" data-tip="Crosshair scale - goes live on scenario entry">
+                <span class="field-label">Crosshair size</span>
+                <div class="size-row">
+                  <canvas id="b-xprev" class="b-xprev" width="96" height="96" aria-hidden="true"></canvas>
+                  <div class="size-ctl">
+                    <input id="b-size" type="range" min="0.25" max="3" step="0.05" value="1" aria-label="Crosshair size" />
+                    <span id="b-size-val" class="muted">keep current</span>
+                  </div>
+                </div>
+              </label>
+              <label class="field">
+                <span class="field-label">Crosshair color</span>
+                <div class="color-row">
+                  <button type="button" id="b-color" class="xcolor" data-value="#ffffff" aria-label="Crosshair color"><span class="cp-mini" style="background: #ffffff"></span></button>
+                  <span id="b-color-hex" class="muted">#ffffff</span>
+                </div>
+              </label>
+              <label class="field">
+                <span class="field-label">Hit sound</span>
+                <div class="input-play">
+                  <input id="b-sound" type="text" placeholder="Search sounds…" spellcheck="false" />
+                  <button id="b-sound-play" class="play" data-tip="Preview" type="button" aria-label="Preview hit sound">▶</button>
+                </div>
+              </label>
+              <label class="field">
+                <span class="field-label">Kill sound</span>
+                <div class="input-play">
+                  <input id="b-killsound" type="text" placeholder="Search sounds…" spellcheck="false" />
+                  <button id="b-killsound-play" class="play" data-tip="Preview" type="button" aria-label="Preview kill sound">▶</button>
+                </div>
+              </label>
+              <label class="field tip-wrap" data-tip="Your global sens, in your current sens scale. The game only reads it at startup, so it lands on the next KovaaK's launch - or type it into the game's settings to apply it now">
+                <span class="field-label">Sens</span>
+                <input id="b-sens" type="text" inputmode="decimal" placeholder="keep current" spellcheck="false" />
+              </label>
+              <label class="field tip-wrap" data-tip="Game DPI setting - only readable at startup, so it lands on the game's next launch">
+                <span class="field-label">DPI</span>
+                <input id="b-dpi" type="text" inputmode="numeric" placeholder="keep current" spellcheck="false" />
+              </label>
+            </div>
+            <!-- populated by populateBuilder() - the text differs for create vs edit -->
+            <p id="b-note" class="builder-note muted"></p>
+            <div class="builder-actions">
+              <button id="b-cancel">Cancel</button>
+              <button id="b-create" class="primary">Create preset</button>
+            </div>
+          </div>
+
+          <section class="block">
+            <div class="section-head">
+              <h2>In game now</h2>
+              <div class="section-actions">
+                <button id="deactivate" class="hidden tip-wrap" data-tip="Put every setting back to how it was before kova companion applied anything">Restore original</button>
+                <button id="capture">Capture as preset</button>
+              </div>
+            </div>
+            <div id="active" class="active-grid"></div>
+          </section>
+
+          <section class="block">
+            <div class="section-head">
+              <h2>Saved <span id="preset-count" class="count"></span></h2>
+            </div>
+            <div id="presets" class="presets"></div>
+            <div id="empty" class="hidden"></div>
+          </section>
+
+          <div class="setting-row apply-row">
+            <div class="setting-text">
+              <span class="setting-label">After applying a preset</span>
+              <span id="apply-mode-summary" class="setting-desc"></span>
+            </div>
+            <div class="seg" role="radiogroup" aria-label="After applying a preset">
+              <label class="seg-opt"><input type="radio" name="apply-mode" value="manual" /><span>Do nothing</span></label>
+              <label class="seg-opt"><input type="radio" name="apply-mode" value="reenter" /><span>Re-enter scenario</span></label>
+              <label class="seg-opt"><input type="radio" name="apply-mode" value="restart" /><span>Restart game</span></label>
+            </div>
+          </div>
+        </section>
+
+        <!-- HUD LAYOUT -->
+        <section id="hud-view" class="view hidden">
+          <div class="page-head">
+            <div class="page-title">
+              <h1>HUD layout</h1>
+              <p class="lead">Drag windows into place. <span id="hud-hint"></span></p>
+            </div>
+            <div class="page-actions">
+              <button id="hud-undo" class="icon-btn" data-tip="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+              <button id="hud-redo" class="icon-btn" data-tip="Redo (Ctrl+Y)" aria-label="Redo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+              <button id="hud-reset" class="tip-wrap" data-tip="Throw away all edits and go back to the saved layout">Reset</button>
+              <button id="hud-save" class="primary">Save layout</button>
+            </div>
+          </div>
+          <div id="hud-canvas-wrap">
+            <div id="hud-canvas"></div>
+          </div>
+          <div id="hud-inspector" class="hud-inspector hidden">
+            <span id="hud-sel-name" class="hud-sel-name"></span>
+            <span class="hud-pos" id="hud-sel-pos"></span>
+            <label class="hud-scale">
+              <span class="setting-desc">Scale</span>
+              <input id="hud-sel-scale" type="range" min="0.25" max="2" step="0.01" />
+              <span id="hud-sel-scale-val" class="hud-pos"></span>
             </label>
-            <label class="field">
-              <span class="field-label">Theme</span>
-              <input id="b-theme" type="text" placeholder="Search themes…" spellcheck="false" />
-            </label>
-            <label class="field">
-              <span class="field-label">Crosshair</span>
-              <input id="b-crosshair" type="text" placeholder="Search crosshairs…" spellcheck="false" />
-            </label>
-            <label class="field tip-wrap" data-tip="Crosshair scale - goes live on scenario entry">
-              <span class="field-label">Crosshair size</span>
-              <div class="size-row">
-                <canvas id="b-xprev" class="b-xprev" width="96" height="96" aria-hidden="true"></canvas>
-                <div class="size-ctl">
-                  <input id="b-size" type="range" min="0.25" max="3" step="0.05" value="1" aria-label="Crosshair size" />
-                  <span id="b-size-val" class="muted">keep current</span>
+            <button id="hud-center-h">Center horizontally</button>
+            <button id="hud-center-v">Center vertically</button>
+          </div>
+          <div id="hud-align" class="hud-inspector hidden">
+            <div class="align-row">
+              <span class="setting-desc">Align <span id="hud-align-count"></span></span>
+              <button data-align="left">Left</button>
+              <button data-align="hcenter">H-center</button>
+              <button data-align="right">Right</button>
+              <button data-align="top">Top</button>
+              <button data-align="vcenter">V-center</button>
+              <button data-align="bottom">Bottom</button>
+            </div>
+            <div class="align-row">
+              <span class="setting-desc">Distribute</span>
+              <button data-align="disth">Horizontally</button>
+              <button data-align="distv">Vertically</button>
+            </div>
+            <div class="align-row">
+              <span class="setting-desc">Space evenly</span>
+              <button data-align="evenh" data-tip="Spread across the full screen width - equal gaps, edges included">Across width</button>
+              <button data-align="evenv" data-tip="Spread across the full screen height - equal gaps, edges included">Across height</button>
+            </div>
+          </div>
+          <p class="hud-note">
+            Windows snap to screen center, edges, other windows and equal spacing. Shift-click to
+            select several for align and distribute. Arrow keys nudge 1px (Shift = 10px). Drag the
+            corner handle of a selected window to calibrate its real size (double-click to reset).
+            The layout applies when KovaaK's is closed, or queues for its next quit.
+          </p>
+        </section>
+
+        <!-- RANK PROGRESS: filled by renderProgress() -->
+        <section id="progress-view" class="view hidden"></section>
+
+        <!-- SESSIONS: filled by renderSessions() -->
+        <section id="sessions-view" class="view hidden"></section>
+
+        <!-- TOURNAMENTS: filled by renderTournaments() -->
+        <section id="tournaments-view" class="view hidden"></section>
+        <section id="challenge-view" class="view hidden"></section>
+
+        <!-- AUTOCLIPPER: filled by renderClips() -->
+        <section id="clips-view" class="view hidden"></section>
+
+        <!-- SETTINGS: what the old top bar carried -->
+        <section id="settings-view" class="view hidden">
+          <div class="page-head">
+            <div class="page-title">
+              <h1>Settings</h1>
+              <p class="lead">Changes save as you go.</p>
+            </div>
+          </div>
+          <!-- kova account, sync, overlay: filled by renderKova() -->
+          <section class="block st-group">
+            <h2 class="st-head">kova</h2>
+            <div id="kova-rows" class="rows"></div>
+          </section>
+          <section id="st-alerts" class="block st-group">
+            <h2 class="st-head">Alerts</h2>
+            <div id="alert-rows" class="rows"></div>
+          </section>
+          <!-- the one OBS setup, for the autoclipper: filled by renderObsSettings() -->
+          <section class="block st-group">
+            <h2 class="st-head">OBS</h2>
+            <div id="obs-rows" class="rows"></div>
+          </section>
+          <section class="block st-group">
+            <h2 class="st-head">KovaaK's</h2>
+            <div class="rows">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-label">Install</span>
+                  <span id="install-path" class="setting-desc">Found through Steam.</span>
+                </div>
+                <button id="refresh" data-tip="Re-scan install &amp; game state">Re-scan</button>
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-label">Health check</span>
+                  <span class="setting-desc">Confirms every file we write is where the game reads it.</span>
+                </div>
+                <button id="health">Run check</button>
+              </div>
+            </div>
+          </section>
+          <section class="block st-group">
+            <h2 class="st-head">App</h2>
+            <div class="rows">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-label">Appearance</span>
+                  <span class="setting-desc">Follows Windows unless you pick one.</span>
+                </div>
+                <div id="theme-seg" class="seg" role="group" aria-label="Appearance">
+                  <button data-theme="system">System</button>
+                  <button data-theme="light">Light</button>
+                  <button data-theme="dark">Dark</button>
                 </div>
               </div>
-            </label>
-            <label class="field">
-              <span class="field-label">Crosshair color</span>
-              <div class="color-row">
-                <button type="button" id="b-color" class="xcolor" data-value="#ffffff" aria-label="Crosshair color"><span class="cp-mini" style="background: #ffffff"></span></button>
-                <span id="b-color-hex" class="muted">#ffffff</span>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-label">Version <span id="app-version" class="num"></span></span>
+                  <span class="setting-desc">Updates download quietly and install on restart.</span>
+                </div>
+                <button id="help">How it works</button>
               </div>
-            </label>
-            <label class="field">
-              <span class="field-label">Hit sound</span>
-              <div class="input-play">
-                <input id="b-sound" type="text" placeholder="Search sounds…" spellcheck="false" />
-                <button id="b-sound-play" class="play" data-tip="Preview" type="button">▶</button>
-              </div>
-            </label>
-            <label class="field">
-              <span class="field-label">Kill sound</span>
-              <div class="input-play">
-                <input id="b-killsound" type="text" placeholder="Search sounds…" spellcheck="false" />
-                <button id="b-killsound-play" class="play" data-tip="Preview" type="button">▶</button>
-              </div>
-            </label>
-            <label class="field tip-wrap" data-tip="Your global sens, in your current sens scale. The game only reads it at startup, so it lands on the next KovaaK's launch - or type it into the game's settings to apply it now">
-              <span class="field-label">Sens</span>
-              <input id="b-sens" type="text" inputmode="decimal" placeholder="keep current" spellcheck="false" />
-            </label>
-            <label class="field tip-wrap" data-tip="Game DPI setting - only readable at startup, so it lands on the game's next launch">
-              <span class="field-label">DPI</span>
-              <input id="b-dpi" type="text" inputmode="numeric" placeholder="keep current" spellcheck="false" />
-            </label>
-          </div>
-          <!-- populated by populateBuilder() - the text differs for create vs edit -->
-          <p id="b-note" class="builder-note muted"></p>
-          <div class="builder-actions">
-            <button id="b-cancel">Cancel</button>
-            <button id="b-create" class="primary">Create preset</button>
-          </div>
-        </div>
-        <div id="presets" class="presets"></div>
-        <p id="empty" class="muted hidden">No presets yet. Set up KovaaK's how you like, then hit <b>Capture as preset</b>.</p>
-        <details class="settings-row stack fold">
-          <summary>
-            <span class="field-label">After applying a preset</span>
-            <span id="apply-mode-summary" class="fold-value"></span>
-          </summary>
-          <div class="opt-list" role="radiogroup" aria-label="After applying a preset">
-            <label class="opt">
-              <input type="radio" name="apply-mode" value="manual" />
-              <span class="opt-body">
-                <span class="opt-title">Do nothing</span>
-                <span class="opt-desc">Only writes the settings. Re-enter your scenario for crosshair and sounds, and open KovaaK's settings once for the theme. Sens and DPI need a restart, or you can type them into the game's settings yourself.</span>
-              </span>
-            </label>
-            <label class="opt">
-              <input type="radio" name="apply-mode" value="reenter" />
-              <span class="opt-body">
-                <span class="opt-title">Re-enter my scenario</span>
-                <span class="opt-desc">Crosshair and sounds go live right away. Theme still needs you to open KovaaK's settings once. Sens and DPI wait for the next launch, unless you type them into the game's settings yourself.</span>
-              </span>
-            </label>
-            <label class="opt">
-              <input type="radio" name="apply-mode" value="restart" />
-              <span class="opt-body">
-                <span class="opt-title">Restart KovaaK's<span class="opt-tag">~40s</span></span>
-                <span class="opt-desc">Everything applies with nothing left to do - theme, sens and DPI included, no settings visit needed. Reopens your scenario afterwards.</span>
-              </span>
-            </label>
-          </div>
-          <span id="restart-key-note" class="muted"></span>
-        </details>
-      </section>
-      <section id="hud-view" class="hidden">
-        <div class="section-head">
-          <h2>HUD Editor</h2>
-          <div class="section-actions">
-            <span id="hud-hint" class="muted"></span>
-            <button id="hud-undo" class="icon-btn" data-tip="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg></button>
-            <button id="hud-redo" class="icon-btn" data-tip="Redo (Ctrl+Y)" aria-label="Redo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg></button>
-            <button id="hud-reset" class="tip-wrap" data-tip="Throw away all edits and go back to the saved layout">Reset</button>
-            <button id="hud-cancel">Back</button>
-            <button id="hud-save" class="primary">Save layout</button>
-          </div>
-        </div>
-        <div id="hud-canvas-wrap">
-          <div id="hud-canvas"></div>
-        </div>
-        <div id="hud-inspector" class="hud-inspector hidden">
-          <span id="hud-sel-name" class="field-label"></span>
-          <span class="hud-pos muted" id="hud-sel-pos"></span>
-          <label class="hud-scale">
-            <span class="field-label">Scale</span>
-            <input id="hud-sel-scale" type="range" min="0.25" max="2" step="0.01" />
-            <span id="hud-sel-scale-val" class="muted"></span>
-          </label>
-          <button id="hud-center-h">Center horizontally</button>
-          <button id="hud-center-v">Center vertically</button>
-        </div>
-        <div id="hud-align" class="hud-inspector hidden">
-          <div class="align-row">
-            <span class="field-label">Align <span id="hud-align-count"></span></span>
-            <button data-align="left">Left</button>
-            <button data-align="hcenter">H-center</button>
-            <button data-align="right">Right</button>
-            <button data-align="top">Top</button>
-            <button data-align="vcenter">V-center</button>
-            <button data-align="bottom">Bottom</button>
-          </div>
-          <div class="align-row">
-            <span class="field-label">Distribute</span>
-            <button data-align="disth">Horizontally</button>
-            <button data-align="distv">Vertically</button>
-          </div>
-          <div class="align-row">
-            <span class="field-label">Space evenly</span>
-            <button data-align="evenh" data-tip="Spread across the full screen width - equal gaps, edges included">Across width</button>
-            <button data-align="evenv" data-tip="Spread across the full screen height - equal gaps, edges included">Across height</button>
-          </div>
-        </div>
-        <p class="muted hud-note">
-          Drag windows to reposition - they snap to screen center, edges, other windows, and
-          equal spacing. Shift-click to multi-select for align/distribute. Arrow keys nudge 1px
-          (Shift = 10px). Drag the corner handle of a selected window to calibrate its real size
-          (double-click the handle to reset it). Layout applies when KovaaK's is closed, or
-          queues for its next quit.
-        </p>
-      </section>
-    </main>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
 
     <div id="toast" class="toast hidden"></div>
+    <!-- rank-up pop-up: Kovi's "New PB" mood, exactly as on the mascot canvas -->
+    <div id="rankup" class="rankup hidden" role="status">
+      <svg viewBox="0 0 120 200" width="52" height="86" aria-hidden="true"><ellipse cx="60" cy="190" rx="30" ry="5" fill="#000" opacity="0.5"/><rect x="30" y="16" width="60" height="152" rx="30" fill="#0d0d0f" stroke="#ff9a9a" stroke-width="3"/><ellipse cx="69" cy="38" rx="13" ry="6" fill="#2c2c33" transform="rotate(-24 69 38)"/><path d="M44 74q5-9 10 0M66 74q5-9 10 0" fill="none" stroke="#ff9a9a" stroke-width="4" stroke-linecap="round"/><path d="M104 24v12M98 30h12M16 46v8M12 50h8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>
+      <div class="rankup-text">
+        <span class="rankup-title"><span class="rankup-dot"></span><span class="rankup-name"></span></span>
+        <span class="rankup-line"></span>
+        <span class="rankup-meta">Official once KovaaK's has it</span>
+      </div>
+    </div>
 
     <script src="renderer.js"></script>
     <script src="hud.js"></script>
+    <!-- one script per page, after renderer.js (shared helpers) -->
+    <script src="kova.js"></script>
+    <script src="progress.js"></script>
+    <script src="sessions.js"></script>
+    <script src="clips.js"></script>
+    <script src="tournaments.js"></script>
+    <script src="challenge.js"></script>
   </body>
 </html>

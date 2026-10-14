@@ -259,12 +259,91 @@ function recentScenariosFromStats(install) {
   }
 }
 
+// ---- the scenario loaded right now (session.sav) -------------------------------
+// The stats history only knows FINISHED runs, so re-entering by it jumps to the
+// previous scenario whenever the player loaded a new one and applied a preset
+// before finishing a run. session.sav is the game's own record of what's loaded:
+// it's rewritten while the game runs, and it carries the current ScenarioName.
+//
+// It's an Unreal GVAS save. No full parser - the property sits in a fixed shape:
+//   FString "ScenarioName" | FString "StrProperty" | int64 size | u8 hasGuid | FString value
+// where an FString is an int32 length (counting the NUL) then the bytes; a
+// negative length means UTF-16 of -length chars. Anything that doesn't fit that
+// shape returns null, so a game update that changes the layout just falls back
+// to the stats history instead of jumping somewhere wrong.
+//
+// Where the file lives isn't certain: other tools read it from LOCALAPPDATA, the
+// app's other settings files are under the install. Both are checked and the
+// newest write wins - that's the running game's.
+function sessionSavPaths(install) {
+  const local = process.env.LOCALAPPDATA
+  return [
+    path.join(paths(install).saveGames, 'session.sav'),
+    ...(local ? [path.join(local, 'FPSAimTrainer', 'Saved', 'SaveGames', 'session.sav')] : []),
+  ]
+}
+
+function gvasFString(buf, pos) {
+  if (pos + 4 > buf.length) return null
+  const len = buf.readInt32LE(pos)
+  pos += 4
+  if (len > 0 && len <= 1024 && pos + len <= buf.length)
+    return { value: buf.toString('utf8', pos, pos + len - 1), end: pos + len }
+  if (len < 0 && -len <= 1024 && pos + -len * 2 <= buf.length)
+    return { value: buf.toString('utf16le', pos, pos + (-len - 1) * 2), end: pos + -len * 2 }
+  return null
+}
+
+// The ScenarioName string property in a GVAS buffer, or null.
+function sessionScenarioFromBuffer(buf) {
+  const key = Buffer.from('ScenarioName\0', 'latin1')
+  const type = Buffer.from('StrProperty\0', 'latin1')
+  // The name is stored as an FString, so its length prefix sits right before it.
+  const at = buf.indexOf(key)
+  if (at < 4 || buf.readInt32LE(at - 4) !== key.length) return null
+  let pos = at + key.length
+  if (buf.readInt32LE(pos) !== type.length || !buf.subarray(pos + 4, pos + 4 + type.length).equals(type))
+    return null
+  pos += 4 + type.length + 8 + 1 // the type FString, then int64 size and the hasGuid byte
+  const str = gvasFString(buf, pos)
+  const name = str?.value.trim()
+  return name || null
+}
+
+function currentScenario(install) {
+  let newest = null
+  for (const file of sessionSavPaths(install)) {
+    try {
+      const mtime = fs.statSync(file).mtimeMs
+      if (!newest || mtime > newest.mtime) newest = { file, mtime }
+    } catch {
+      // not at this location
+    }
+  }
+  if (!newest) return null
+  // The game rewrites it while running; a read mid-write can come back short, so
+  // one retry before giving up to the stats history.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const name = sessionScenarioFromBuffer(fs.readFileSync(newest.file))
+      if (name) return name
+    } catch {
+      // locked or vanished mid-read
+    }
+  }
+  return null
+}
+
 // "<scenario> - <mode> - YYYY.MM.DD-HH.MM.SS Stats.csv" -> { scenario, ts }.
 // The timestamp is the game's local time; parse it to epoch ms so it compares
 // against file mtimes.
+// Older builds wrote "<scenario> - Challenge Start - <timestamp>.csv" - no
+// " Stats" suffix (per aimmod's file watcher, not seen first-hand) - so the
+// suffix is optional; missing it, a player on such a build never had a scenario
+// to re-enter.
 function statsFileScenario(filename) {
   const m = String(filename || '').match(
-    /^(.*) - .+ - (\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.(\d{2}) Stats\.csv$/
+    /^(.*) - .+ - (\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.(\d{2})(?: Stats)?\.csv$/
   )
   if (!m) return null
   const [, scenario, y, mo, d, h, mi, s] = m
@@ -847,10 +926,14 @@ module.exports = {
   paths,
   checkHealth,
   recentScenariosFromStats,
+  currentScenario,
   writeFileAtomic,
   readActive,
   readWeapon,
   readPrimary,
+  // Raw settings object, for readers that need a field outside PRIMARY_MANAGED
+  // (the kova sync's FOV) without widening what presets capture and write.
+  readPrimaryObject,
   primaryFromTheme,
   listOptions,
   primaryDiffers,
@@ -873,6 +956,7 @@ module.exports = {
   setProxyThemeName,
   proxyThemeSelected,
   // Exercised only by selftest.js, but they guard real file semantics - keep.
+  sessionScenarioFromBuffer,
   statsFileScenario,
   weaponDiffers,
 }

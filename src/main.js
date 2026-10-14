@@ -4,10 +4,12 @@ const {
   app,
   BrowserWindow,
   Menu,
+  Notification,
   Tray,
   dialog,
   globalShortcut,
   ipcMain,
+  safeStorage,
   shell,
 } = require('electron')
 const path = require('node:path')
@@ -15,11 +17,23 @@ const fs = require('node:fs')
 const { pathToFileURL } = require('node:url')
 const { execFile } = require('node:child_process')
 const k = require('./core/kovaaks')
+const companion = require('./core/companion')
+const progress = require('./core/progress')
+const history = require('./core/history')
+const clipper = require('./core/clipper')
 const store = require('./core/presets')
 const logger = require('./core/log')
 const log = logger.log
 
 const STEAM_APP_ID = '824270' // KovaaK's
+
+// Pinned to the pre-rename folder. Electron derives userData from productName,
+// so the KovaPresets -> kova companion rename would otherwise point every
+// installed copy at an empty folder: presets, settings and the restore baseline
+// gone. Must run before anything reads the path, the single-instance lock
+// included (it keys on userData, which also keeps an old and new build from
+// running side by side).
+app.setPath('userData', path.join(app.getPath('appData'), 'KovaPresets'))
 
 // One instance only: a second `npm start` focuses the existing window instead
 // of silently stacking another copy in the tray (the X hides to tray, so
@@ -60,12 +74,37 @@ const gameRunning = () => gameRunningCache
 // is the normal usage pattern, which made it look intermittent. ~50ms tasklist
 // call on a user action only; every other reader still gets the cached value.
 function gameRunningNow() {
-  gameRunningCache = k.isGameRunning()
+  noteGameRunning(k.isGameRunning())
   return gameRunningCache
+}
+// When the game was first seen running, for the session recap. Both readers of
+// the process list go through noteGameRunning, so the close edge is seen once
+// whichever of them notices first. Restart-game sets the cache directly on
+// purpose: closing to relaunch is the same session, not a recap.
+let gameStartedAt = null
+function noteGameRunning(running, clean = true) {
+  const was = gameRunningCache
+  gameRunningCache = running
+  // also covers "already running when the app started": no rising edge then
+  if (running && gameStartedAt == null) gameStartedAt = Date.now()
+  if (running && !was) kovaLiveStart()
+  updateTrayIcon()
+  if (was && !running && clean) kovaLiveStop()
+  // a failed tasklist reads as "not running"; only a clean answer closes a session
+  if (was && !running && clean) {
+    onGameClosed(gameStartedAt)
+    gameStartedAt = null
+  }
 }
 function pollGameRunning() {
   execFile('tasklist', k.TASKLIST_ARGS, { windowsHide: true }, (err, out) => {
-    gameRunningCache = !err && k.tasklistSaysRunning(out)
+    noteGameRunning(!err && k.tasklistSaysRunning(out), !err)
+    // A running game means the install exists, so a sync that couldn't start at
+    // launch (Steam not up yet, install not found) starts now - without paying
+    // for a Steam re-scan on every tick while nothing is found.
+    if (gameRunningCache && kovaToken && !kovaWatcher) startKovaSync()
+    // runs only land while the game runs, so that's when the stats watch must be up
+    if (gameRunningCache && !statsWatcher) startStatsWatch()
   })
 }
 
@@ -84,7 +123,7 @@ function createWindow() {
     minWidth: 720,
     minHeight: 520,
     backgroundColor: '#111114',
-    title: 'KovaPresets',
+    title: 'kova companion',
     icon: path.join(__dirname, 'assets', 'app.ico'),
     // started as a login item: boot straight into the tray, no window flash
     show: !process.argv.includes('--hidden'),
@@ -132,7 +171,7 @@ function createWindow() {
     const s = loadSettings()
     if (!s.trayTipShown && tray) {
       tray.displayBalloon({
-        title: 'KovaPresets is still running',
+        title: 'kova companion is still running',
         content: 'Hotkeys stay active. Right-click the tray icon to apply presets or quit.',
       })
       saveSettings({ ...s, trayTipShown: true })
@@ -162,7 +201,7 @@ const pendingFile = () => path.join(userData(), 'pending.json')
 // it has to stay undefined for an existing config so applyMode() can migrate the
 // old autoRestart boolean onto the 'reenter' rung. Defaulting it would merge a
 // 'manual' over every existing user and silently turn their auto re-enter off.
-const SETTINGS_DEFAULTS = { autoRestart: false, trayTipShown: false, onboarded: false }
+const SETTINGS_DEFAULTS = { autoRestart: false, trayTipShown: false, onboarded: false, snipeAlerts: true, pbPopups: true }
 const settingsFile = () => path.join(userData(), 'settings.json')
 function loadSettings() {
   try {
@@ -192,12 +231,23 @@ const REENTER_HOP_MS = 2500
 const scenarioLink = (name, challenge) =>
   `steam://run/${STEAM_APP_ID}/?action=jump-to-scenario;name=${encodeURIComponent(name)}${challenge ? ';mode=challenge' : ''}`
 
+// What to re-enter, and a different scenario to park on first (the jump to the
+// same scenario reloads nothing). The target is the scenario loaded right now
+// (session.sav); the stats history only knows finished runs, so it's the
+// fallback - alone it sent anyone who'd loaded a new scenario and applied a
+// preset before finishing a run back to the previous one.
+function reenterTargets(install) {
+  if (!install) return []
+  const recent = k.recentScenariosFromStats(install)
+  const scenario = k.currentScenario(install) || recent[0]
+  return [scenario, recent.find((s) => s !== scenario)]
+}
+
 async function doRestartScenario() {
   if (!gameRunning()) return { ok: false, error: "KovaaK's isn't running." }
-  const install = findInstall()
-  const [scenario, parking] = install ? k.recentScenariosFromStats(install) : []
+  const [scenario, parking] = reenterTargets(findInstall())
   if (!scenario)
-    return { ok: false, error: 'No finished run found yet - re-enter the scenario by hand.' }
+    return { ok: false, error: 'No scenario loaded yet - re-enter the scenario by hand.' }
   // mode=challenge on the final jump so the next run counts on the leaderboard.
   // It also starts the run instantly - the URI API has no "challenge but idle"
   // option, so the player presses their own reset bind when ready (a reset or
@@ -262,10 +312,9 @@ async function doRestartGame() {
 }
 
 async function restartGameInner() {
-  const install = findInstall()
-  // Read the scenario BEFORE closing - it comes from the stats history, which the
-  // game only appends to, but resolving it up front keeps the ordering obvious.
-  const [scenario] = install ? k.recentScenariosFromStats(install) : []
+  // Read the scenario BEFORE closing: session.sav is the running game's, and
+  // what's on disk after it quits is whatever it last wrote.
+  const [scenario] = reenterTargets(findInstall())
   await closeGame()
   if (!(await waitForExit())) {
     log('restart: game did not close within timeout')
@@ -403,7 +452,7 @@ function flushPending() {
 
 // ---- baseline: the user's own setup, captured before the first apply -----------
 // One snapshot, taken only when none exists, so "Restore original setup" always
-// returns to the state before KovaPresets touched anything - not one step back
+// returns to the state before kova companion touched anything - not one step back
 // like the old per-apply undo. Cleared on restore; the next apply recaptures.
 const baselineDir = () => path.join(userData(), 'baseline')
 const hasBaseline = () => fs.existsSync(path.join(baselineDir(), 'weapon.bak'))
@@ -664,7 +713,7 @@ function trayMenu() {
     ...(updateReady
       ? [{ label: `Restart to update to ${updateReady}`, click: () => installUpdate() }]
       : []),
-    { label: 'Open KovaPresets', click: showWindow },
+    { label: 'Open kova companion', click: showWindow },
     // support surface: "sens didn't apply" reports come with a file to look at
     ...(logger.logPath()
       ? [{ label: 'Open log file', click: () => shell.showItemInFolder(logger.logPath()) }]
@@ -673,19 +722,30 @@ function trayMenu() {
   ])
 }
 
+// Kovi in the tray: awake while KovaaK's runs, asleep (grey) otherwise, like the
+// title bar. PNGs with @1.25x / @1.5x / @2x siblings - Electron picks the one for
+// the display scale. The 16px one is a chunkier drawing, so it reads at tray size.
+const trayIcon = (running) => path.join(__dirname, 'assets', running ? 'tray-awake.png' : 'tray-asleep.png')
+let trayAwake = null
+function updateTrayIcon() {
+  if (!tray || trayAwake === !!gameRunningCache) return
+  trayAwake = !!gameRunningCache
+  tray.setImage(trayIcon(trayAwake))
+}
+
 function createTray() {
-  // the website's favicon (multi-frame .ico) - Windows picks the right size itself
   try {
-    tray = new Tray(path.join(__dirname, 'assets', 'tray.ico'))
+    trayAwake = !!gameRunningCache
+    tray = new Tray(trayIcon(trayAwake))
   } catch (e) {
-    // The .ico doesn't decode off Windows, and this used to throw straight out of
+    // The old .ico didn't decode off Windows, and this used to throw straight out of
     // whenReady - taking auto-update, the pending flush and hotkey registration
     // with it, leaving a macOS/Linux dev run half-booted with no visible reason.
     // The app is shipped for Windows; elsewhere it just runs without a tray.
     log('tray unavailable (expected off Windows)', e)
     return
   }
-  tray.setToolTip('KovaPresets')
+  tray.setToolTip('kova companion')
   tray.on('click', showWindow)
   tray.on('right-click', () => tray.popUpContextMenu(trayMenu()))
 }
@@ -711,10 +771,11 @@ function readActiveMerged(install) {
 
 ipcMain.handle('state', (_e, opts) => {
   const install = findInstall(opts?.rescan)
-  if (!install) return { install: null }
+  if (!install) return { install: null, appVersion: app.getVersion() }
   const { active, pending } = readActiveMerged(install)
   return {
     install,
+    appVersion: app.getVersion(),
     gameRunning: gameRunning(),
     active,
     // What the proxy theme file actually holds - the renderer matches theme
@@ -902,11 +963,6 @@ ipcMain.handle('proxy:ensure', () => {
   }
 })
 
-ipcMain.handle('game:launch', () => {
-  shell.openExternal(`steam://rungameid/${STEAM_APP_ID}`)
-  return { ok: true }
-})
-
 ipcMain.handle('win:minimize', () => win?.minimize())
 ipcMain.handle('win:devtools', () => win?.webContents.toggleDevTools())
 ipcMain.handle('win:close', () => win?.close()) // routes through close-to-tray
@@ -925,6 +981,885 @@ ipcMain.handle('settings:set', (_e, patch) => {
   return s
 })
 
+// ---- kova account + setup sync -------------------------------------------------
+// Sign-in is kova's device-code grant: the app gets a short code, the user
+// approves it on kova.page/login/companion while signed in with Discord (the app never
+// sees Discord credentials), and the poll comes back with a kova session token.
+// That token is stored encrypted with the OS keystore (DPAPI on Windows) and
+// sent as a Bearer. The sync then posts the live in-game setup (core/companion.js)
+// whenever the game's settings files change - never scores or ranks.
+const KOVA_URL = process.env.KOVA_URL || 'https://kova.page' // KOVA_URL=http://localhost:3000 for dev
+const KOVA_CLIENT_ID = 'kova-companion'
+const kovaAuthFile = () => path.join(userData(), 'kova-auth.bin')
+let kovaToken = null
+let kovaUser = null // { username, name, avatarUrl, rank } once /me answered
+let kovaSignIn = null // { userCode, url, cancel } while a sign-in is pending
+
+function loadKovaToken() {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return null
+    return safeStorage.decryptString(fs.readFileSync(kovaAuthFile()))
+  } catch {
+    return null
+  }
+}
+function saveKovaToken(token) {
+  kovaToken = token
+  // atomic: a crash mid-write must not leave a half token that signs you out
+  if (token) k.writeFileAtomic(kovaAuthFile(), safeStorage.encryptString(token))
+  else fs.rmSync(kovaAuthFile(), { force: true })
+}
+
+async function kovaFetch(pathname, { method = 'GET', body, token = kovaToken } = {}) {
+  try {
+    return await fetch(`${KOVA_URL}${pathname}`, {
+      method,
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body,
+      signal: AbortSignal.timeout(10000),
+    })
+  } catch (e) {
+    log('kova request failed', pathname, e?.message)
+    return null // offline / kova down - every caller treats it as "try later"
+  }
+}
+
+const kovaNotify = () => win?.webContents.send('kova-changed')
+const kovaSyncOn = () => loadSettings().kovaSync !== false
+
+// Signed out from kova's side (expired, revoked, banned): forget the token so the
+// app stops posting and shows Sign in again.
+function kovaForget() {
+  saveKovaToken(null)
+  kovaUser = null
+  stopKovaSync()
+  kovaNotify()
+}
+
+async function refreshKovaUser() {
+  const res = await kovaFetch('/api/companion/me')
+  if (res?.status === 401) return kovaForget()
+  if (!res?.ok) return // offline: keep the cached user, retry on the next start
+  const me = await res.json().catch(() => null) // an error page, not JSON
+  if (!me?.username) return
+  kovaUser = {
+    username: me.username,
+    name: me.name,
+    // relative upload paths come back as-is, so anchor them to kova
+    avatarUrl: me.avatarUrl ? new URL(me.avatarUrl, KOVA_URL).href : null,
+    rank: me.rank?.name ? { name: me.rank.name, benchmark: me.rank.benchmark, color: me.rank.color } : null,
+  }
+  kovaNotify()
+}
+
+// ---- sync: watch the game's settings, post the setup when it changed ----
+let kovaWatcher = null
+let kovaTimer = null
+let kovaLastSent = ''
+let kovaPosting = Promise.resolve()
+const KOVA_RETRY_MS = 60_000
+// The files setupPayload reads. SaveGames also holds files the game rewrites
+// constantly while running (session.sav), and reacting to those would keep
+// resetting the debounce below, so the post could never fire mid-session.
+const KOVA_WATCHED = /^(weaponsettings\.ini|PrimaryUserSettings\.json|Themes[\\/].*)$/i
+// ---- live on stream: is KovaaK's running right now? -------------------------------
+// The overlay shows the KovaaK's slide only while the game runs. The app says so
+// when it starts, every 5 minutes while it runs (kova lets the slide go 10 minutes
+// after the last ping, so a crash or a PC switched off can't leave it up), and
+// when it closes - 90s late, so a restart (applying a preset) doesn't make the
+// slide blink off and on.
+const KOVA_LIVE_MS = 5 * 60 * 1000
+const KOVA_LIVE_OFF_DELAY_MS = 90 * 1000
+let kovaLiveTimer = null
+let kovaLiveOffTimer = null
+function postKovaLive(running) {
+  if (!kovaToken) return Promise.resolve()
+  return kovaFetch('/api/companion/live', { method: 'POST', body: JSON.stringify({ running }) })
+    .then((r) => r?.status === 401 && kovaForget())
+    .catch(() => {})
+}
+function kovaLiveStart() {
+  clearTimeout(kovaLiveOffTimer)
+  if (kovaLiveTimer || !kovaToken || !kovaSyncOn()) return
+  postKovaLive(true)
+  kovaLiveTimer = setInterval(() => postKovaLive(true), KOVA_LIVE_MS)
+}
+function kovaLiveStop({ now = false } = {}) {
+  const wasLive = !!kovaLiveTimer
+  clearInterval(kovaLiveTimer)
+  kovaLiveTimer = null
+  clearTimeout(kovaLiveOffTimer)
+  if (!wasLive) return Promise.resolve()
+  if (now) return postKovaLive(false)
+  kovaLiveOffTimer = setTimeout(() => postKovaLive(false), KOVA_LIVE_OFF_DELAY_MS)
+  return Promise.resolve()
+}
+
+function stopKovaSync() {
+  clearTimeout(kovaTimer)
+  kovaWatcher?.close()
+  kovaWatcher = null
+  kovaLastSent = ''
+}
+const scheduleKovaPush = (ms) => {
+  clearTimeout(kovaTimer)
+  kovaTimer = setTimeout(pushKovaSetup, ms)
+}
+// One post at a time, so an older payload can never land after a newer one.
+function pushKovaSetup() {
+  kovaPosting = kovaPosting.then(postKovaSetup, postKovaSetup)
+  return kovaPosting
+}
+async function postKovaSetup() {
+  const install = findInstall()
+  if (!install || !kovaToken || !kovaSyncOn()) return
+  let body
+  try {
+    body = JSON.stringify(companion.setupPayload(install))
+  } catch {
+    return // a half-written settings file - the next watch event brings the good one
+  }
+  // The game rewrites its files with identical content on every menu visit; only
+  // a real change is worth a request (and an overlay reload on stream).
+  if (body === kovaLastSent) return
+  const res = await kovaFetch('/api/companion/setup', { method: 'POST', body })
+  if (res?.status === 401) return kovaForget()
+  if (res?.ok) kovaLastSent = body
+  // Offline, kova down, rate-limited: try again in a minute, so an app started
+  // before the network was up still gets the overlay current. A settings change
+  // in between reschedules it sooner.
+  else if (kovaWatcher) scheduleKovaPush(KOVA_RETRY_MS)
+}
+// ponytail: bound to the install found at start; a moved install (re-scan) is
+// picked up on the next app start. Rebind on rescan if that ever matters.
+function startKovaSync() {
+  stopKovaSync()
+  const install = findInstall()
+  if (!install || !kovaToken || !kovaSyncOn()) return
+  try {
+    // The directory, not the files: both are written atomically (temp + rename),
+    // which strands a per-file watch on a dead inode after the first write.
+    kovaWatcher = fs.watch(k.paths(install).saveGames, { recursive: true }, (_type, name) => {
+      // no name (some platforms, overflow): can't tell, so treat it as relevant
+      if (name && !KOVA_WATCHED.test(String(name))) return
+      scheduleKovaPush(1500) // one post per burst of writes
+    })
+    kovaWatcher.on('error', () => {}) // folder gone mid-session (Steam verify) - sync just pauses
+  } catch {
+    kovaWatcher = null
+  }
+  pushKovaSetup()
+}
+
+// ---- sign-in (device code) ----
+async function startKovaSignIn() {
+  kovaSignIn?.cancel()
+  const res = await kovaFetch('/api/auth/device/code', {
+    method: 'POST',
+    token: null,
+    body: JSON.stringify({ client_id: KOVA_CLIENT_ID }),
+  })
+  if (!res?.ok) return { ok: false, error: "Couldn't reach kova. Check your connection and try again." }
+  const grant = await res.json()
+  let interval = (grant.interval || 5) * 1000
+  const expires = Date.now() + (grant.expires_in || 600) * 1000
+  let timer = null
+  const pending = {
+    userCode: grant.user_code,
+    url: grant.verification_uri_complete || grant.verification_uri,
+    cancel: () => {
+      clearTimeout(timer)
+      if (kovaSignIn === pending) kovaSignIn = null
+    },
+  }
+  kovaSignIn = pending
+  const poll = async () => {
+    if (kovaSignIn !== pending) return
+    if (Date.now() > expires) {
+      pending.cancel()
+      return kovaNotify()
+    }
+    const r = await kovaFetch('/api/auth/device/token', {
+      method: 'POST',
+      token: null,
+      body: JSON.stringify({
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        device_code: grant.device_code,
+        client_id: KOVA_CLIENT_ID,
+      }),
+    })
+    if (kovaSignIn !== pending) return
+    const data = r ? await r.json().catch(() => ({})) : {}
+    if (r?.ok && data.access_token) {
+      pending.cancel()
+      saveKovaToken(data.access_token)
+      await refreshKovaUser()
+      startKovaSync()
+      loadTournaments().catch(() => {}).finally(scheduleTournaments)
+      if (gameRunningCache) kovaLiveStart()
+      scheduleSnipes(10 * 1000) // after the "Connected" toast, not over it
+      return kovaNotify()
+    }
+    // RFC 8628: keep polling while pending, back off on slow_down, stop on anything final
+    if (data.error === 'slow_down') interval += 5000
+    else if (r && data.error !== 'authorization_pending') {
+      pending.cancel()
+      return kovaNotify()
+    }
+    timer = setTimeout(poll, interval)
+  }
+  timer = setTimeout(poll, interval)
+  shell.openExternal(pending.url)
+  return { ok: true, userCode: pending.userCode }
+}
+
+const kovaState = () => ({
+  signedIn: !!kovaToken,
+  user: kovaUser,
+  sync: kovaSyncOn(),
+  snipes: loadSettings().snipeAlerts,
+  pbPopups: loadSettings().pbPopups,
+  signingIn: kovaSignIn ? kovaSignIn.userCode : null,
+})
+
+ipcMain.handle('kova:get', () => kovaState())
+ipcMain.handle('kova:signIn', async () => {
+  if (!safeStorage.isEncryptionAvailable())
+    return { ok: false, error: "This PC can't store the sign-in securely, so kova sign-in is off." }
+  return startKovaSignIn()
+})
+ipcMain.handle('kova:cancelSignIn', () => {
+  kovaSignIn?.cancel()
+  return kovaState()
+})
+ipcMain.handle('kova:signOut', async () => {
+  // Best effort on kova's side too, so the session leaves the account page; and
+  // the overlay's KovaaK's slide goes now, not 10 minutes later.
+  await kovaLiveStop({ now: true })
+  if (kovaToken) await kovaFetch('/api/auth/sign-out', { method: 'POST', body: '{}' })
+  kovaForget()
+  return kovaState()
+})
+ipcMain.handle('kova:setPbPopups', (_e, on) => {
+  saveSettings({ ...loadSettings(), pbPopups: !!on })
+  return kovaState()
+})
+ipcMain.handle('kova:setSnipes', (_e, on) => {
+  saveSettings({ ...loadSettings(), snipeAlerts: !!on })
+  return kovaState()
+})
+ipcMain.handle('kova:setSync', (_e, on) => {
+  saveSettings({ ...loadSettings(), kovaSync: !!on })
+  if (on) {
+    startKovaSync()
+    if (gameRunningCache) kovaLiveStart()
+  } else {
+    stopKovaSync()
+    kovaLiveStop({ now: true })
+  }
+  return kovaState()
+})
+// The only kova pages the renderer may open: your profile, and the overlay setup.
+ipcMain.handle('kova:open', (_e, where) => {
+  const target =
+    where === 'overlay' ? '/dashboard/overlay' : where === 'profile' && kovaUser ? `/${kovaUser.username}` : null
+  if (target) shell.openExternal(`${KOVA_URL}${target}`)
+})
+
+// ---- rank progress ---------------------------------------------------------------
+// The page model: kova's benchmark playlist (thresholds + verified bests) with the
+// local runs layered on (core/progress.js). Runs land in <install>/stats the
+// moment one ends, which is what drives the live parts: the page refresh, the
+// rank-up pop-up, and advancing a rank-up session.
+let progressBench = null // kova's last payload, for rank-up detection between page loads
+let statsWatcher = null
+const seenStats = new Set() // files already handled, so a rewrite never double-counts
+
+async function loadProgress({ source, difficulty } = {}) {
+  if (!kovaToken) return { ok: false, reason: 'signed-out' }
+  const qs = new URLSearchParams()
+  if (source) qs.set('source', source)
+  if (difficulty) qs.set('difficulty', difficulty)
+  const res = await kovaFetch(`/api/companion/benchmark?${qs}`)
+  if (res?.status === 401) {
+    kovaForget()
+    return { ok: false, reason: 'signed-out' }
+  }
+  const bench = res?.ok ? await res.json().catch(() => null) : null
+  if (!bench?.scenarios) return { ok: false, reason: 'offline' }
+  progressBench = bench
+  // The card shows the featured rank; opening the page is a natural moment to
+  // pick up a rank-up kova has confirmed since start.
+  refreshKovaUser().catch(() => {})
+  const install = findInstall()
+  const rows = progress.buildProgress(
+    bench.scenarios,
+    install ? progress.localRuns(install, bench.scenarios.map((s) => s.name)) : new Map()
+  )
+  startStatsWatch()
+  return {
+    ok: true,
+    bench: { source: bench.source, label: bench.label, difficulty: bench.difficulty, difficulties: bench.difficulties, sources: bench.sources, connected: bench.connected },
+    rows,
+    session: progress.pickSession(rows),
+    loaded: install ? k.currentScenario(install) : null,
+    playing: rankSession ? { names: rankSession.names, idx: rankSession.idx } : null,
+  }
+}
+
+// ---- rank-up session: launch each scenario, move on after RUNS_EACH runs ----
+// Not a KovaaK's playlist: the playlist link needs an uploaded playlist's share
+// code, which a list built here doesn't have. The app drives it instead, with the
+// same jump-to-scenario link re-enter uses, counting finished runs from /stats.
+const RUNS_EACH = 3
+let rankSession = null // { names, idx, left }
+function sessionStep() {
+  if (!rankSession) return
+  const name = rankSession.names[rankSession.idx]
+  if (!name) {
+    rankSession = null
+    win?.webContents.send('progress-changed', { sessionDone: true })
+    return
+  }
+  rankSession.left = RUNS_EACH
+  shell.openExternal(scenarioLink(name, true))
+  win?.webContents.send('progress-changed', {})
+}
+
+function onRunFinished(file) {
+  const install = findInstall()
+  if (!install) return
+  const run = progress.parseRun(path.join(install, 'stats'), file)
+  if (!run) return
+  const s = progressBench?.scenarios.find((x) => x.name.toLowerCase() === run.scenario.toLowerCase())
+  // The best BEFORE this run: any earlier local run, and kova's verified best
+  // when the scenario is in the loaded benchmark (it can know runs this PC doesn't).
+  const earlier = (progress.localRuns(install, [run.scenario]).get(run.scenario.toLowerCase()) || [])
+    .filter((r) => r.ts < run.ts)
+    .map((r) => r.score)
+  const bests = [s?.best, ...earlier].filter((v) => v != null)
+  const prevBest = bests.length ? Math.max(...bests) : null
+  const crossed = s ? progress.rankUpFrom(s.thresholds, prevBest, run.score) : null
+  if (crossed) {
+    const info = { scenario: s.name, rank: crossed.rank, color: crossed.color || null, score: run.score, over: Math.round((run.score - crossed.score) * 10) / 10 }
+    log('rank-up', info.scenario, info.rank, info.score)
+    // The window usually sits in the tray mid-session: the OS toast is what's seen.
+    if (!win?.isVisible() && Notification.isSupported())
+      new Notification({ title: `${info.rank} on ${info.scenario}`, body: `${info.score}, ${info.over} over the line` }).show()
+    win?.webContents.send('rank-up', info)
+  } else if (prevBest != null && run.score > prevBest && loadSettings().pbPopups) {
+    // A plain PB, same pop-up with the New PB mood. In-app only: unlike a rank-up
+    // it happens often enough that an OS notification for each would be noise.
+    win?.webContents.send('pb', { scenario: run.scenario, score: run.score, gain: Math.round((run.score - prevBest) * 10) / 10 })
+  }
+  clipRun(run, prevBest, crossed?.rank || null)
+  if (rankSession && rankSession.names[rankSession.idx]?.toLowerCase() === run.scenario.toLowerCase()) {
+    rankSession.left -= 1
+    if (rankSession.left <= 0) {
+      rankSession.idx += 1
+      sessionStep()
+      return
+    }
+  }
+  win?.webContents.send('progress-changed', {})
+}
+
+function startStatsWatch() {
+  if (statsWatcher) return
+  const install = findInstall()
+  if (!install) return
+  const dir = path.join(install, 'stats')
+  try {
+    // Everything already there is history, not a fresh run.
+    for (const f of fs.readdirSync(dir)) seenStats.add(f)
+    statsWatcher = fs.watch(dir, (_type, name) => {
+      if (!name || seenStats.has(name) || !k.statsFileScenario(name)) return
+      seenStats.add(name)
+      // the game is still writing it for a moment after the file appears
+      setTimeout(() => onRunFinished(name), 500)
+    })
+    statsWatcher.on('error', () => {})
+  } catch {
+    statsWatcher = null
+  }
+}
+
+ipcMain.handle('progress:get', (_e, opts) => loadProgress(opts))
+// The score graph for one scenario of the loaded benchmark: its row (best, odds)
+// plus the chart over `days` (30 / 90 / null = all).
+ipcMain.handle('progress:scenario', (_e, name, days) => {
+  const s = progressBench?.scenarios.find((x) => x.name === name)
+  const install = findInstall()
+  if (!s) return { ok: false }
+  const runs = install ? progress.localRuns(install, [s.name]) : new Map()
+  const mine = runs.get(s.name.toLowerCase()) || []
+  return {
+    ok: true,
+    row: progress.buildProgress([s], runs)[0],
+    chart: progress.scenarioChart(mine, s.thresholds, days),
+  }
+})
+ipcMain.handle('progress:play', (_e, name) => {
+  if (typeof name !== 'string' || !progressBench?.scenarios.some((s) => s.name === name)) return
+  shell.openExternal(scenarioLink(name, true))
+})
+ipcMain.handle('progress:startSession', (_e, names) => {
+  const valid = (Array.isArray(names) ? names : []).filter(
+    (n) => typeof n === 'string' && progressBench?.scenarios.some((s) => s.name === n)
+  )
+  if (!valid.length) return null
+  rankSession = { names: valid, idx: 0, left: RUNS_EACH }
+  sessionStep()
+  return { names: valid, idx: 0 }
+})
+ipcMain.handle('progress:stopSession', () => {
+  rankSession = null
+})
+
+// ---- sessions (history + recap) ---------------------------------------------------
+// Every run in /stats grouped into days and sessions (core/history.js). Rank-ups
+// are marked for the benchmark Rank progress last loaded, when there is one.
+function historyThresholds() {
+  return new Map((progressBench?.scenarios || []).map((s) => [s.name.toLowerCase(), s.thresholds]))
+}
+function loadHistory() {
+  const install = findInstall()
+  if (!install) return { ok: false, reason: 'no-install' }
+  const days = history.buildHistory(progress.allRuns(install), historyThresholds())
+  return { ok: true, days, years: history.yearsOf(days) }
+}
+ipcMain.handle('history:get', () => loadHistory())
+
+// The recap moment: KovaaK's just closed. Called from the game poll on the
+// running -> closed edge with when the game was first seen running.
+function onGameClosed(startedAt) {
+  const install = findInstall()
+  if (!install || !startedAt) return
+  const runs = progress.allRuns(install).filter((r) => r.ts >= startedAt)
+  if (!runs.length) return // opened and closed without finishing a run
+  const today = history.buildHistory(progress.allRuns(install), historyThresholds())[0]
+  const pbs = runs.length && today ? today.pbs.length : 0
+  const info = { day: history.dayKey(runs[runs.length - 1].ts), runs: runs.length, pbs, rankUps: today?.rankUps || [] }
+  log('session ended', info.runs, 'runs', info.pbs, 'PBs')
+  if (!win?.isVisible() && Notification.isSupported()) {
+    const n = new Notification({
+      title: `Session done: ${info.runs} runs${info.pbs ? `, ${info.pbs} new PB${info.pbs === 1 ? '' : 's'}` : ''}`,
+      body: `${info.rankUps.length ? `${info.rankUps[0].rank} on ${info.rankUps[0].scenario}. ` : ''}Click for the recap.`,
+    })
+    n.on('click', () => {
+      showWindow()
+      win?.webContents.send('open-recap', info)
+    })
+    n.show()
+  }
+  win?.webContents.send('session-ended', info)
+}
+
+// ---- autoclipper ---------------------------------------------------------------------
+// A finished run that qualifies (core/clipper.js clipReason) -> wait PAD_END_S ->
+// ask OBS to save its replay buffer -> OBS answers with ReplayBufferSaved and the
+// file -> cut it to the run with ffmpeg if it's installed (else keep it whole) ->
+// file it under the clips folder. The OBS password is kept encrypted like the
+// kova token.
+const CLIP_DEFAULTS = { on: false, host: '127.0.0.1', port: 4455, mode: 'pb', trim: true, folder: null }
+const clipCfg = () => ({ ...CLIP_DEFAULTS, ...(loadSettings().clip || {}) })
+const clipFolder = () => clipCfg().folder || path.join(app.getPath('videos'), 'kova companion')
+const obsPassFile = () => path.join(userData(), 'obs-pass.bin')
+const clipsFile = () => path.join(userData(), 'clips.json')
+const CLIPS_KEPT = 50 // the Recent clips list; the files themselves are never deleted by us
+const OBS_RETRY_MS = 15000
+
+function loadObsPass() {
+  try {
+    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(fs.readFileSync(obsPassFile())) : ''
+  } catch {
+    return ''
+  }
+}
+function loadClips() {
+  try {
+    const list = JSON.parse(fs.readFileSync(clipsFile(), 'utf8'))
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
+let obs = null
+let obsRetry = null
+let obsState = { status: 'off', error: null }
+let pendingClips = [] // runs we asked OBS to save, oldest first
+const clipNotify = () => win?.webContents.send('clip-changed')
+
+function obsStop() {
+  clearTimeout(obsRetry)
+  const c = obs
+  obs = null
+  c?.close()
+  obsState = { status: 'off', error: null }
+}
+async function obsStart() {
+  obsStop()
+  const cfg = clipCfg()
+  if (!cfg.on) return clipNotify()
+  obsState = { status: 'connecting', error: null }
+  clipNotify()
+  // Declared before the connect call: OBS can close the socket (a wrong password)
+  // before obsConnect has resolved, and onClose must not touch an unset binding.
+  let conn = null
+  try {
+    conn = await clipper.obsConnect(
+      { host: cfg.host, port: cfg.port, password: loadObsPass() },
+      {
+        onEvent: (type, data) => {
+          if (type === 'ReplayBufferSaved') {
+            const job = pendingClips.shift()
+            // a save we didn't ask for (the streamer's own hotkey): not ours to move
+            if (job) finishClip(job, data.savedReplayPath).catch((e) => log('clip failed', e?.message))
+          }
+        },
+        onClose: () => {
+          // not up yet (the catch below handles that and retries), or closed on
+          // purpose by obsStop
+          if (!conn || obs !== conn) return
+          obs = null
+          obsState = { status: 'error', error: 'OBS closed' }
+          clipNotify()
+          obsRetry = setTimeout(obsStart, OBS_RETRY_MS)
+        },
+      }
+    )
+    obs = conn
+    // The whole feature rides on the replay buffer, so switch it on if it's off.
+    const st = await conn.request('GetReplayBufferStatus').catch(() => null)
+    if (st && !st.outputActive)
+      await conn.request('StartReplayBuffer').catch(() => {
+        throw new Error('Turn on the replay buffer in OBS: Settings, Output, Replay Buffer')
+      })
+    obsState = { status: 'connected', error: null }
+  } catch (e) {
+    obs?.close()
+    obs = null
+    obsState = { status: 'error', error: e?.message || "Couldn't reach OBS" }
+    // OBS not running yet is the normal case at app start: keep trying quietly
+    obsRetry = setTimeout(obsStart, OBS_RETRY_MS)
+  }
+  clipNotify()
+}
+
+function clipRun(run, prevBest, rank) {
+  const cfg = clipCfg()
+  if (!cfg.on || !obs) return
+  const reason = clipper.clipReason(cfg.mode, run, prevBest, rank)
+  if (!reason) return
+  // A few seconds of the moment after the run, then save.
+  setTimeout(async () => {
+    if (!obs) return
+    const job = { run, reason, savedAt: Date.now() }
+    pendingClips.push(job)
+    try {
+      await obs.request('SaveReplayBuffer')
+    } catch (e) {
+      pendingClips = pendingClips.filter((j) => j !== job)
+      log('clip: save failed', e?.message)
+    }
+  }, clipper.PAD_END_S * 1000)
+}
+
+// The bundled cut-only ffmpeg (scripts/build-ffmpeg.sh, shipped in resources/
+// by electron-builder; vendor/ in a dev checkout), else one on PATH.
+function ffmpegBin() {
+  const exe = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+  const bundled = app.isPackaged
+    ? path.join(process.resourcesPath, 'ffmpeg', exe)
+    : path.join(__dirname, '..', 'vendor', 'ffmpeg', exe)
+  return fs.existsSync(bundled) ? bundled : 'ffmpeg'
+}
+let ffmpegOk = null // cached: can we run one?
+function hasFfmpeg() {
+  if (ffmpegOk !== null) return Promise.resolve(ffmpegOk)
+  return new Promise((resolve) =>
+    execFile(ffmpegBin(), ['-version'], { windowsHide: true }, (err) => resolve((ffmpegOk = !err)))
+  )
+}
+
+async function finishClip(job, src) {
+  if (!src || !fs.existsSync(src)) return
+  const cfg = clipCfg()
+  const dest = clipper.clipPath(clipFolder(), job.run, path.extname(src))
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  let trimmed = false
+  const fromEnd = clipper.trimFromEndS(job.run, job.savedAt)
+  if (cfg.trim && fromEnd && (await hasFfmpeg())) {
+    trimmed = await new Promise((resolve) =>
+      execFile(ffmpegBin(), clipper.ffmpegArgs(src, dest, fromEnd), { windowsHide: true }, (err) => resolve(!err))
+    )
+    // OBS's copy was only ever made for this clip
+    if (trimmed) fs.rmSync(src, { force: true })
+  }
+  if (!trimmed) {
+    try {
+      fs.renameSync(src, dest)
+    } catch {
+      fs.copyFileSync(src, dest) // another drive: rename can't cross volumes
+      fs.rmSync(src, { force: true })
+    }
+  }
+  const { reason, run } = job
+  const why = reason.why === 'rankup' ? `${reason.rank}, new` : reason.why === 'pb' ? `PB +${Math.round(reason.gain * 10) / 10}` : 'Run'
+  const clip = { file: dest, scenario: run.scenario, score: run.score, why, at: Date.now(), trimmed }
+  k.writeFileAtomic(clipsFile(), JSON.stringify([clip, ...loadClips()].slice(0, CLIPS_KEPT), null, 2))
+  log('clip saved', dest)
+  if (!win?.isVisible() && Notification.isSupported())
+    new Notification({ title: `Clip saved: ${run.scenario}`, body: `${run.score}, ${why}` }).show()
+  win?.webContents.send('clip-saved', clip)
+  clipNotify()
+}
+
+ipcMain.handle('clip:get', async () => {
+  const cfg = clipCfg()
+  return {
+    on: cfg.on,
+    mode: cfg.mode,
+    trim: cfg.trim,
+    host: cfg.host,
+    port: cfg.port,
+    hasPassword: !!loadObsPass(),
+    folder: clipFolder(),
+    obs: obsState,
+    ffmpeg: await hasFfmpeg(),
+    clips: loadClips().filter((c) => fs.existsSync(c.file)),
+  }
+})
+const CLIP_MODES = ['pb', 'rankup', 'every']
+ipcMain.handle('clip:set', (_e, patch) => {
+  const cur = clipCfg()
+  const next = { ...cur }
+  if (typeof patch?.on === 'boolean') next.on = patch.on
+  if (CLIP_MODES.includes(patch?.mode)) next.mode = patch.mode
+  if (typeof patch?.trim === 'boolean') next.trim = patch.trim
+  if (typeof patch?.host === 'string' && /^[\w.-]{1,253}$/.test(patch.host)) next.host = patch.host
+  if (Number.isInteger(patch?.port) && patch.port > 0 && patch.port < 65536) next.port = patch.port
+  saveSettings({ ...loadSettings(), clip: next })
+  if (next.on !== cur.on || next.host !== cur.host || next.port !== cur.port) obsStart()
+})
+ipcMain.handle('clip:setPassword', (_e, pw) => {
+  if (typeof pw !== 'string') return
+  if (!pw) fs.rmSync(obsPassFile(), { force: true })
+  else if (safeStorage.isEncryptionAvailable()) k.writeFileAtomic(obsPassFile(), safeStorage.encryptString(pw))
+  if (clipCfg().on) obsStart()
+})
+ipcMain.handle('clip:pickFolder', async () => {
+  const res = await dialog.showOpenDialog(win, {
+    title: 'Clips folder',
+    defaultPath: clipFolder(),
+    properties: ['openDirectory', 'createDirectory'],
+  })
+  if (res.canceled || !res.filePaths[0]) return null
+  saveSettings({ ...loadSettings(), clip: { ...clipCfg(), folder: res.filePaths[0] } })
+  return res.filePaths[0]
+})
+ipcMain.handle('clip:openFolder', () => {
+  fs.mkdirSync(clipFolder(), { recursive: true })
+  shell.openPath(clipFolder())
+})
+// Only a file this app recorded as a clip can be opened from here.
+ipcMain.handle('clip:play', (_e, file) => {
+  if (loadClips().some((c) => c.file === file)) shell.openPath(file)
+})
+
+// ---- tournaments -------------------------------------------------------------------
+// Your kova tournaments (GET /api/companion/tournaments): the page, plus two
+// reminders, each once - check-in opening, and your match going live. Decided:
+// the app NEVER checks anyone in by itself (that's always the player's click),
+// and a live match only notifies; it never pulls the window forward.
+const TOURNEY_FAST_MS = 60 * 1000 // something registered, upcoming or live
+const TOURNEY_SLOW_MS = 15 * 60 * 1000 // nothing on: just notice new entries
+let tourneyData = null
+let tourneyTimer = null
+const tourneyReminded = new Set() // `checkin:<id>` / `live:<matchId>`, once per app run
+
+// `announce`: tell the page it changed. Only the background poll does - the page
+// asking for the data itself must not, or its own re-render asks again, forever.
+async function loadTournaments({ announce = true } = {}) {
+  if (!kovaToken) return { ok: false, reason: 'signed-out' }
+  const res = await kovaFetch('/api/companion/tournaments')
+  if (res?.status === 401) {
+    kovaForget()
+    return { ok: false, reason: 'signed-out' }
+  }
+  const data = res?.ok ? await res.json().catch(() => null) : null
+  if (!data?.current) return { ok: false, reason: 'offline' }
+  tourneyData = data
+  remindTournaments(data)
+  if (announce) win?.webContents.send('tournaments-changed', { live: data.current.some((t) => t.match?.status === 'LIVE') })
+  return { ok: true, ...data }
+}
+
+function remindTournaments(data) {
+  // Check-ins first, live matches last: the app shows one toast at a time and the
+  // last one stays up, so the more urgent reminder is the one that lands.
+  for (const t of data.current) {
+    if (t.checkIn.open && !t.checkIn.checkedIn && !tourneyReminded.has(`checkin:${t.id}`)) {
+      tourneyReminded.add(`checkin:${t.id}`)
+      const starts = t.startsAt ? new Date(t.startsAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : null
+      tourneyNotify('checkin', t, { title: 'Check-in is open', body: `${t.name}${starts ? ` starts at ${starts}` : ''}` })
+    }
+  }
+  for (const t of data.current) {
+    const m = t.match
+    if (m?.status === 'LIVE' && !tourneyReminded.has(`live:${m.id}`)) {
+      tourneyReminded.add(`live:${m.id}`)
+      const game = m.game ? ` · Game ${m.game.number}: ${m.game.scenario}` : ''
+      tourneyNotify('live', t, { title: 'Your match is live', body: `vs ${m.opponent || 'TBD'}${game}` })
+    }
+  }
+}
+
+// In-app when the window is up (with its button), else a Windows notification
+// whose click only opens the page - it doesn't check in or launch anything.
+function tourneyNotify(kind, t, { title, body }) {
+  log('tournament', kind, t.name)
+  if (!win?.isVisible() && Notification.isSupported()) {
+    const n = new Notification({ title, body })
+    n.on('click', () => {
+      showWindow()
+      win?.webContents.send('open-view', 'tournaments')
+    })
+    n.show()
+  }
+  win?.webContents.send('tournament-reminder', { kind, id: t.id, matchId: t.match?.id || null, title, body })
+}
+
+function scheduleTournaments() {
+  clearTimeout(tourneyTimer)
+  if (!kovaToken) return
+  const busy = tourneyData?.current?.some((t) => t.status !== 'COMPLETED')
+  tourneyTimer = setTimeout(async () => {
+    await loadTournaments().catch(() => {})
+    scheduleTournaments()
+  }, busy ? TOURNEY_FAST_MS : TOURNEY_SLOW_MS)
+}
+
+ipcMain.handle('tournaments:get', () => loadTournaments({ announce: false }))
+ipcMain.handle('tournaments:checkIn', async (_e, id) => {
+  if (!tourneyData?.current?.some((t) => t.id === id)) return { ok: false, error: 'Unknown tournament.' }
+  const res = await kovaFetch('/api/companion/tournaments/checkin', { method: 'POST', body: JSON.stringify({ tournamentId: id }) })
+  if (res?.status === 401) {
+    kovaForget()
+    return { ok: false, error: 'Signed out of kova.' }
+  }
+  const data = res ? await res.json().catch(() => ({})) : {}
+  // the caller re-renders from its own reload; announcing here would loop too
+  await loadTournaments({ announce: false }).catch(() => {})
+  return res?.ok ? { ok: true } : { ok: false, error: data.error || "Couldn't reach kova." }
+})
+// Launch the current game's scenario. Only a KovaaK's steam link from kova's own
+// payload - never an arbitrary URL from the renderer.
+ipcMain.handle('tournaments:play', (_e, matchId) => {
+  const m = tourneyData?.current?.map((t) => t.match).find((x) => x?.id === matchId)
+  const url = m?.game?.playUrl
+  if (typeof url === 'string' && url.startsWith(`steam://run/${STEAM_APP_ID}/`)) shell.openExternal(url)
+})
+ipcMain.handle('tournaments:open', (_e, slug) => {
+  const known = [...(tourneyData?.current || []), ...(tourneyData?.past || [])].some((t) => t.slug === slug)
+  if (known && /^[\w-]+$/.test(slug)) shell.openExternal(`${KOVA_URL}/tournaments/${slug}`)
+})
+
+// ---- weekly challenge ------------------------------------------------------------
+// Your teams' scenario of the week (GET /api/companion/challenge): this week's
+// standings and past weeks, computed by kova like its Discord board and feed rail.
+// Loaded when the page opens; nothing polls it.
+let challengeData = null
+
+async function loadChallenge() {
+  if (!kovaToken) return { ok: false, reason: 'signed-out' }
+  const res = await kovaFetch('/api/companion/challenge')
+  if (res?.status === 401) {
+    kovaForget()
+    return { ok: false, reason: 'signed-out' }
+  }
+  const data = res?.ok ? await res.json().catch(() => null) : null
+  if (!Array.isArray(data?.teams)) return { ok: false, reason: 'offline' }
+  challengeData = data
+  return { ok: true, ...data }
+}
+const challengeTeam = (slug) => challengeData?.teams.find((t) => t.team.slug === slug)
+
+ipcMain.handle('challenge:get', () => loadChallenge())
+// Only a scenario and a team from kova's own answer, never one the renderer names.
+ipcMain.handle('challenge:play', (_e, slug) => {
+  const t = challengeTeam(slug)
+  if (t) shell.openExternal(scenarioLink(t.scenario))
+})
+ipcMain.handle('challenge:open', (_e, slug) => {
+  if (challengeTeam(slug) && /^[\w-]+$/.test(slug)) shell.openExternal(`${KOVA_URL}/aimgroup/${slug}`)
+})
+
+// ---- snipe alerts --------------------------------------------------------------------
+// PBs set by people you follow (GET /api/companion/snipes), checked against your
+// local best on the same scenario. kova never sees your scores: the comparison
+// happens here, and only a PB that beats yours alerts. The cursor (the last
+// row's loggedAt) lives in settings, so a restart doesn't replay old ones; the
+// very first poll only sets it, so signing in doesn't dump a week of alerts.
+const SNIPE_POLL_MS = 5 * 60 * 1000
+let snipeTimer = null
+const snipesSeen = new Map() // snipe id -> its PB, for the Play button
+
+async function pollSnipes() {
+  if (!kovaToken) return
+  const s = loadSettings()
+  const baseline = !s.snipeCursor
+  let cursor = s.snipeCursor || ''
+  const fresh = []
+  // ponytail: 10 pages of 100 caps a catch-up; past that the rest is old news anyway
+  for (let page = 0; page < 10; page++) {
+    const res = await kovaFetch(`/api/companion/snipes${cursor ? `?after=${encodeURIComponent(cursor)}` : ''}`)
+    if (res?.status === 401) return kovaForget()
+    const data = res?.ok ? await res.json().catch(() => null) : null
+    if (!Array.isArray(data?.pbs)) return // offline or rate-limited: same cursor next time
+    fresh.push(...data.pbs)
+    if (data.pbs.length) cursor = data.pbs[data.pbs.length - 1].loggedAt
+    if (data.pbs.length < 100) break
+  }
+  saveSettings({ ...loadSettings(), snipeCursor: cursor || new Date().toISOString() })
+  const install = findInstall()
+  if (baseline || !s.snipeAlerts || !install || !fresh.length) return
+
+  const snipes = companion.pickSnipes(fresh, progress.localRuns(install, new Set(fresh.map((p) => p.scenario))))
+  if (!snipes.length) return
+  for (const p of snipes) snipesSeen.set(p.id, p)
+  // one alert per poll: the newest, with the rest counted
+  const p = snipes[snipes.length - 1]
+  const more = snipes.length - 1
+  const title = `${p.name} beat your best`
+  const body = `${p.scenario}: ${Math.round(p.score)} vs your ${Math.round(p.mine)}${more ? ` (+${more} more)` : ''}`
+  log('snipe', p.username, p.scenario)
+  if (!win?.isVisible() && Notification.isSupported()) {
+    const n = new Notification({ title, body })
+    n.on('click', () => shell.openExternal(scenarioLink(p.scenario))) // the one click: straight into it
+    n.show()
+  }
+  win?.webContents.send('snipe', { id: p.id, name: p.name, scenario: p.scenario, score: p.score, mine: p.mine, more })
+}
+
+function scheduleSnipes(ms = SNIPE_POLL_MS) {
+  clearTimeout(snipeTimer)
+  if (!kovaToken) return
+  snipeTimer = setTimeout(async () => {
+    await pollSnipes().catch((e) => log('snipes failed', e.message))
+    scheduleSnipes()
+  }, ms)
+}
+
+ipcMain.handle('snipes:play', (_e, id) => {
+  const p = snipesSeen.get(id)
+  if (p) shell.openExternal(scenarioLink(p.scenario))
+})
+
 // ---- preset import/export (share a preset as a JSON file) ----------------------
 ipcMain.handle('presets:export', async (_e, id) => {
   const presets = store.load(userData())
@@ -933,7 +1868,7 @@ ipcMain.handle('presets:export', async (_e, id) => {
   const base = id ? (chosen[0].name || 'preset').replace(/[<>:"/\\|?*]+/g, '').trim() : 'kova-presets'
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
     defaultPath: `${base || 'preset'}.kovapreset.json`,
-    filters: [{ name: 'KovaPreset', extensions: ['json'] }],
+    filters: [{ name: 'kova companion preset', extensions: ['json'] }],
   })
   if (canceled || !filePath) return { ok: false, canceled: true }
   // ids are local and hotkeys are personal - neither belongs in a shared file
@@ -946,7 +1881,7 @@ ipcMain.handle('presets:export', async (_e, id) => {
 
 ipcMain.handle('presets:import', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-    filters: [{ name: 'KovaPreset', extensions: ['json'] }],
+    filters: [{ name: 'kova companion preset', extensions: ['json'] }],
     properties: ['openFile'],
   })
   if (canceled || !filePaths.length) return { ok: false, canceled: true }
@@ -957,7 +1892,7 @@ ipcMain.handle('presets:import', async () => {
     return { ok: false, error: "That file isn't valid JSON." }
   }
   const incoming = Array.isArray(data?.presets) ? data.presets : Array.isArray(data) ? data : null
-  if (!incoming) return { ok: false, error: "That file doesn't look like a KovaPreset export." }
+  if (!incoming) return { ok: false, error: "That file doesn't look like a kova companion preset export." }
   const presets = store.load(userData())
   let count = 0
   for (const p of incoming) {
@@ -982,7 +1917,7 @@ ipcMain.handle('hud:save', (_e, uiRaw) => {
   // that's not worth trusting a caller for.
   if (!k.validUi(uiRaw)) return { status: 'invalid' }
   // The HUD editor writes UI.json directly, so "Restore original setup" must
-  // have the pre-KovaPresets layout on file before the first save lands.
+  // have the pre-kova-companion layout on file before the first save lands.
   captureBaselineIfMissing(install)
   if (gameRunning()) {
     const pending = readPending() || {}
@@ -1014,7 +1949,7 @@ function initAutoUpdate() {
     // The tray is the only surface guaranteed to be visible - the window is
     // usually hidden when this fires, which is exactly how a staged update used
     // to go unmentioned indefinitely.
-    if (tray && !tray.isDestroyed()) tray.setToolTip(`KovaPresets - update ${info.version} ready`)
+    if (tray && !tray.isDestroyed()) tray.setToolTip(`kova companion - update ${info.version} ready`)
   })
   // offline, rate-limited, or no release yet - just try again on the next tick
   autoUpdater.on('error', () => {})
@@ -1044,6 +1979,22 @@ app.whenReady().then(() => {
   registerHotkeys()
   setInterval(flushPendingIfPossible, 4000)
   setInterval(pollGameRunning, 3000)
+  // A stored kova sign-in resumes the setup sync, tray-only starts included -
+  // keeping the stream overlay current is exactly the job the tray is for.
+  kovaToken = loadKovaToken()
+  if (kovaToken) {
+    refreshKovaUser()
+    startKovaSync()
+    // Rank-up detection needs the thresholds, and the app mostly lives in the
+    // tray - so load them now rather than waiting for the page to be opened.
+    loadProgress().catch(() => {})
+    loadTournaments().catch(() => {}).finally(scheduleTournaments)
+    if (gameRunningCache) kovaLiveStart() // already running when the app started: no rising edge
+    scheduleSnipes(0)
+  }
+  // finished runs drive clips, rank-ups and sessions, signed in or not
+  startStatsWatch()
+  if (clipCfg().on) obsStart()
   // legacy storage from the removed per-apply undo system
   fs.rmSync(path.join(userData(), 'backups'), { recursive: true, force: true })
   // The "Start with Windows" setting is gone, but anyone who had it on still has

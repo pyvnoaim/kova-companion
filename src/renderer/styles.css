@@ -1,22 +1,28 @@
-/* Fonts + tokens lifted verbatim from the Kova website (src/styles/globals.css
- * and public/fonts) so the app matches the site. Space Grotesk = body, Fraunces
- * = headings, JetBrains Mono = mono/values. */
+/* Look and tokens follow kova's DESIGN.md (~/dev/kova): Geist for everything you
+ * read, Geist Mono for numbers only, the Kova Logo face for the wordmark. Surfaces
+ * instead of borders, one accent, sentence case, nothing under 12px. */
 @font-face {
-  font-family: 'Space Grotesk';
-  src: url('fonts/space-grotesk-400.woff') format('woff');
+  font-family: 'Geist';
+  src: url('fonts/geist-sans-latin-400-normal.woff2') format('woff2');
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
-  font-family: 'Space Grotesk';
-  src: url('fonts/space-grotesk-700.woff') format('woff');
-  font-weight: 700;
+  font-family: 'Geist';
+  src: url('fonts/geist-sans-latin-500-normal.woff2') format('woff2');
+  font-weight: 500;
   font-display: swap;
 }
 @font-face {
-  font-family: 'Fraunces';
-  src: url('fonts/fraunces-600.ttf') format('truetype');
+  font-family: 'Geist';
+  src: url('fonts/geist-sans-latin-600-normal.woff2') format('woff2');
   font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('fonts/geist-mono-latin-500-normal.woff2') format('woff2');
+  font-weight: 500;
   font-display: swap;
 }
 @font-face {
@@ -25,26 +31,23 @@
   font-weight: 700;
   font-display: swap;
 }
-@font-face {
-  font-family: 'JetBrains Mono';
-  src: url('fonts/jetbrains-mono-400.ttf') format('truetype');
-  font-weight: 400;
-  font-display: swap;
-}
 
-/* ---- palette: the site's exact token values, three-way (system/light/dark) --- */
+/* ---- palette: kova's tokens, three-way (system/light/dark) ---------------------
+ * --border is kova's hairline (row dividers, the title bar and sidebar edges);
+ * --border-strong is only for the edge of things you type into. */
 :root,
 :root.light {
   --page: #fafafa;
   --surface: #ffffff;
   --surface-raised: #f4f4f5;
-  --border: #e4e4e7;
-  --border-strong: #a1a1aa;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: #d4d4d8;
   --fg: #18181b;
   --fg-subtle: #3f3f46;
   --fg-muted: #6d6d76;
   --accent: #ff9a9a;
   --accent-contrast: #18181b;
+  --switch-off: #d4d4d8;
   --danger: #dc2626;
   --success: #16a34a;
   --warning: #d97706;
@@ -52,51 +55,53 @@
   color-scheme: light;
 }
 
-/* One radius scale, applied by role (matches the site: surfaces xl, controls md,
-   pills/badges full). Mode-independent, so defined once on :root. */
+/* One radius per role: controls 8, cards and rows 12, pills full. */
 :root {
   --radius-surface: 12px;
   --radius-control: 8px;
   --radius-pill: 999px;
+  --mono: 'Geist Mono', ui-monospace, monospace;
 }
 
 /* system dark = OS prefers dark and no explicit choice made */
 @media (prefers-color-scheme: dark) {
   :root:not(.light):not(.dark) {
-    --page: #111114;
-    --surface: #1c1c1f;
-    --surface-raised: #27272a;
-    --border: #3f3f46;
-    --border-strong: #71717a;
+    --page: #0d0d0f;
+    --surface: #151518;
+    --surface-raised: #1e1e22;
+    --border: #26262b;
+    --border-strong: #3f3f46;
     --fg: #ffffff;
     --fg-subtle: #d4d4d8;
     --fg-muted: #a1a1aa;
     --accent: #ff9a9a;
-    --accent-contrast: #18181b;
+    --accent-contrast: #0d0d0f;
+    --switch-off: #2a2a30;
     --danger: #f87171;
     --success: #4ade80;
     --warning: #fbbf24;
-    --tile-bg: #212126;
+    --tile-bg: #1e1e22;
     color-scheme: dark;
   }
 }
 
 /* explicit dark */
 :root.dark {
-  --page: #111114;
-  --surface: #1c1c1f;
-  --surface-raised: #27272a;
-  --border: #3f3f46;
-  --border-strong: #71717a;
+  --page: #0d0d0f;
+  --surface: #151518;
+  --surface-raised: #1e1e22;
+  --border: #26262b;
+  --border-strong: #3f3f46;
   --fg: #ffffff;
   --fg-subtle: #d4d4d8;
   --fg-muted: #a1a1aa;
   --accent: #ff9a9a;
-  --accent-contrast: #18181b;
+  --accent-contrast: #0d0d0f;
+  --switch-off: #2a2a30;
   --danger: #f87171;
   --success: #4ade80;
   --warning: #fbbf24;
-  --tile-bg: #212126;
+  --tile-bg: #1e1e22;
   color-scheme: dark;
 }
 
@@ -111,14 +116,14 @@ body {
 body {
   background: var(--page);
   color: var(--fg);
-  font: 14px/1.5 'Space Grotesk', system-ui, sans-serif;
+  font: 400 14px/20px 'Geist', system-ui, sans-serif;
   -webkit-user-select: none;
   user-select: none;
   /* hidden [data-tip] bubbles are laid out even at opacity 0 - a wide tip near
      the window edge must never conjure a horizontal scrollbar */
   overflow-x: clip;
-  /* the window itself never scrolls - <main> is the scroller, so the navbar
-     sits outside it and can't shift when a scrollbar appears */
+  /* the window itself never scrolls - <main> is the scroller, so the title bar
+     and sidebar sit outside it and can't shift when a scrollbar appears */
   overflow-y: hidden;
   display: flex;
   flex-direction: column;
@@ -130,319 +135,355 @@ body {
 .muted {
   color: var(--fg-muted);
 }
+.num {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.ok-text {
+  color: var(--success);
+  font-weight: 500;
+}
 
-/* topbar */
-.topbar {
+/* ---- title bar (frameless window: this is the drag region) --------------------- */
+.titlebar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 18px;
+  gap: 12px;
+  height: 48px;
+  flex: none;
+  padding-left: 16px;
+  background: var(--page);
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  /* frameless window: the topbar doubles as the titlebar */
   -webkit-app-region: drag;
-  height: 56px;
-  gap: 14px;
-  justify-content: flex-start;
 }
-.topbar button,
-.topbar .seg,
-.topbar .pill {
+.titlebar button {
   -webkit-app-region: no-drag;
 }
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-right: auto;
-  /* The topbar doesn't wrap and the window clips overflow-x, so anything that
-     doesn't fit pushes the caption buttons off the right edge - i.e. out of
-     reach. The wordmark yields that space first; the controls stay clickable. */
+  /* The bar doesn't wrap and the window clips overflow-x, so anything that
+     doesn't fit pushes the caption buttons out of reach. The wordmark yields
+     that space first; the controls stay clickable. */
   min-width: 0;
   overflow: hidden;
 }
-/* custom caption buttons (frameless window) - minimize + close only */
-.win-controls {
+.wordmark {
+  font: 700 18px/1 'Kova Logo', Georgia, serif;
+  white-space: nowrap;
+}
+/* Kovi, the mascot: awake while the game runs, asleep otherwise */
+.kovi {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+.kovi-body {
+  fill: var(--page);
+  stroke: var(--accent);
+  stroke-width: 1.8;
+}
+.kovi-eye {
+  fill: var(--accent);
+}
+.kovi-asleep .kovi-body {
+  stroke: var(--fg-muted);
+}
+.kovi-shut {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+body:not([data-game='on']) .kovi-awake,
+body[data-game='on'] .kovi-asleep {
+  display: none;
+}
+.titlebar-right {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+}
+.titlebar-right button {
+  height: 32px;
+  padding: 0 12px;
+}
+/* Status = a 6px dot plus a word, never colour alone. */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  font-size: 13px;
+  padding-right: 4px;
+  white-space: nowrap;
+}
+.status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.status-on {
+  color: var(--success);
+}
+.status-off {
+  color: var(--fg-muted);
+}
+/* custom caption buttons - minimize + close only */
+.win-controls {
+  display: flex;
+  align-self: stretch;
 }
 .win-controls button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 46px;
+  height: 100%;
   padding: 0;
+  border-radius: 0;
   background: transparent;
-  border-color: transparent;
   color: var(--fg-muted);
 }
 .win-controls button:hover {
   color: var(--fg);
   background: var(--surface-raised);
-  border-color: var(--border);
 }
 #win-close:hover {
   background: var(--danger);
-  border-color: var(--danger);
   color: #fff;
 }
 .win-controls svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
-.brand {
-  /* The display Fraunces (same face as the site's "kova." wordmark). */
-  font-family: 'Kova Logo', 'Fraunces', Georgia, serif;
-  font-size: 20px;
-  letter-spacing: 0.2px;
+
+/* ---- shell: sidebar + the one scroller ---------------------------------------- */
+.shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
-.topbar-right {
+.sidebar {
+  width: 224px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 12px;
+  border-right: 1px solid var(--border);
+}
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-label {
+  font-size: 13px;
+  color: var(--fg-muted);
+  padding: 0 10px 4px;
+}
+.nav-spacer {
+  flex: 1;
+}
+.sidebar .nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-/* Navbar controls share one height and the ghost-button chrome (transparent
-   bg, standard border, control radius) so they read as one family with the
-   Launch button. */
-.seg,
-#game-pill,
-#update-btn,
-#launch,
-#help,
-#health,
-#refresh {
   height: 32px;
-}
-
-/* theme segmented control */
-.seg {
-  display: inline-flex;
-  align-items: center;
+  padding: 0 10px;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  padding: 2px;
+  color: var(--fg-subtle);
+  font-weight: 500;
+  text-align: left;
 }
-.seg button {
-  border: none;
-  background: transparent;
-  color: var(--fg-muted);
-  padding: 0 12px;
-  height: 100%;
-  border-radius: calc(var(--radius-control) - 3px);
-  font-size: 12px;
-  line-height: 1;
+.sidebar .nav-item:hover {
+  background: var(--surface);
 }
-.seg button:hover {
-  color: var(--fg);
-}
-.seg button.on {
+.sidebar .nav-item.on {
   background: var(--surface-raised);
   color: var(--fg);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  font-size: 12px;
-  padding: 0 10px;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--border);
-  font-family: 'JetBrains Mono', monospace;
+.nav-item svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
-.pill-on {
-  color: var(--success);
-  border-color: color-mix(in srgb, var(--success) 40%, transparent);
-  background: color-mix(in srgb, var(--success) 12%, transparent);
-}
-.pill-off {
-  color: var(--fg-muted);
-}
-
-/* layout */
-/* main is the app's one scroller (full window width, so the scrollbar hugs the
-   window edge over plain page background); sections center the content */
 main {
   flex: 1;
-  min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
-main > section {
-  max-width: 900px;
+main > .view {
+  max-width: 960px;
   margin: 0 auto;
-  padding: 22px;
+  padding: 32px 40px 40px;
+}
+
+/* ---- page and section headers ------------------------------------------------- */
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.page-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+h1 {
+  font: 600 28px/34px 'Geist', sans-serif;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.lead {
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--fg-subtle);
+  text-wrap: pretty;
+}
+.page-actions,
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.page-actions button {
+  height: 36px;
+  padding: 0 14px;
+}
+.block + .block {
+  margin-top: 40px;
 }
 .section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 26px 0 12px;
-}
-.section-head:first-child {
-  margin-top: 4px;
+  margin-bottom: 12px;
 }
 h2 {
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 17px;
-  font-weight: 600;
+  font: 600 20px/28px 'Geist', sans-serif;
+}
+.count {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--fg-muted);
+  margin-left: 4px;
+}
+.section-actions button {
+  height: 32px;
+  padding: 0 12px;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  padding: 0 !important;
+  background: transparent !important;
+  color: var(--fg-muted);
+}
+.icon-btn:hover {
+  color: var(--fg);
+}
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
 }
 
-/* buttons */
+/* ---- buttons: primary (accent, one per view), secondary (raised), ghost ------- */
 button {
-  font: inherit;
+  font: 500 14px/20px 'Geist', sans-serif;
   cursor: pointer;
+  border: 0;
   border-radius: var(--radius-control);
-  border: 1px solid var(--border);
   background: var(--surface-raised);
   color: var(--fg);
   padding: 8px 14px;
-  transition:
-    background 0.15s,
-    border-color 0.15s,
-    transform 0.05s;
+  transition: background 150ms ease-out, color 150ms ease-out;
 }
 button:hover {
-  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--surface-raised) 80%, var(--fg) 8%);
 }
-/* A mouse click shouldn't leave the OS-colored focus ring behind; keep a
-   themed ring for keyboard navigation only. */
+/* A mouse click shouldn't leave a focus ring behind; keyboard focus always gets one. */
 button:focus:not(:focus-visible) {
   outline: none;
 }
-button:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
-  outline-offset: 1px;
+button:focus-visible,
+input:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 button:disabled {
   opacity: 0.45;
   cursor: default;
   pointer-events: none;
 }
-button:active {
-  transform: translateY(1px);
-}
 button.primary {
   background: var(--accent);
-  border-color: var(--accent);
   color: var(--accent-contrast);
   font-weight: 600;
 }
 button.primary:hover {
   filter: brightness(1.05);
 }
-button.ghost {
-  background: transparent;
-  padding: 6px 10px;
+#health.health-fail {
+  color: var(--danger);
 }
-/* help + refresh + health: square icon buttons matching the navbar height */
-#refresh,
-#help,
-#health {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  padding: 0;
-}
-#health svg {
-  width: 16px;
-  height: 16px;
-}
-/* spin the ↻ glyph on a manual re-scan so the click is visibly acknowledged */
-#refresh .ricon {
-  display: inline-block;
-  line-height: 1;
-}
-#refresh.spinning .ricon {
-  animation: kova-spin 0.6s ease;
-}
-@keyframes kova-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-/* active setup grid */
+
+/* ---- "in game now": a stat strip on one surface ------------------------------- */
 .active-grid {
   display: grid;
-  /* all five cards on one line; minmax(0,1fr) lets long theme names shrink
-     instead of forcing a wrap, .value ellipsizes the overflow */
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px 24px;
+  padding: 20px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
 }
 .stat {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
-  padding: 14px 16px;
   min-width: 0;
 }
-.stat .label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--fg-muted);
-  margin-bottom: 6px;
-  font-family: 'JetBrains Mono', monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .stat .value {
+  font-size: 15px;
+  line-height: 22px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.stat .sub {
+.stat .value.num {
+  font-size: 22px;
+  line-height: 28px;
+}
+.stat .unit {
+  font: 400 13px/20px 'Geist', sans-serif;
   color: var(--fg-muted);
-  font-size: 12px;
-  margin-top: 2px;
+}
+.stat .label {
+  font-size: 13px;
+  color: var(--fg-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.section-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-/* Section-head buttons match the navbar/Launch scale: 32px, ghost chrome.
-   .primary keeps its accent fill, just at the compact size. */
-.section-actions button {
-  height: 32px;
-  padding: 0 10px;
-}
-.section-actions .icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  padding: 0;
-}
-.section-actions .icon-btn svg {
-  width: 14px;
-  height: 14px;
-}
-.section-actions button:not(.primary) {
-  background: transparent;
-}
 
 /* preset builder */
 .builder {
   background: var(--surface);
-  border: 1px solid var(--border);
   border-radius: var(--radius-surface);
-  padding: 16px;
-  margin-bottom: 14px;
+  padding: 20px;
+  margin-bottom: 40px;
 }
 .builder-grid {
   display: grid;
@@ -456,23 +497,27 @@ button.ghost {
   min-width: 0;
 }
 .field-label {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--fg-muted);
+  font-size: 13px;
+  color: var(--fg-subtle);
 }
-.field input[type='text'] {
+/* kova's Input: page-coloured well with a hairline edge, 36px like every control */
+.field input[type='text'],
+.field input[type='password'] {
   font: inherit;
   color: var(--fg);
-  background: var(--surface-raised);
+  background: var(--page);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
-  padding: 7px 10px;
+  height: 36px;
+  padding: 0 12px;
   outline: none;
   min-width: 0;
 }
-.field input[type='text']:focus {
+.field input::placeholder {
+  color: var(--fg-muted);
+}
+.field input[type='text']:focus,
+.field input[type='password']:focus {
   border-color: var(--border-strong);
 }
 /* custom combobox dropdown */
@@ -534,10 +579,10 @@ button.ghost {
   min-width: 0;
 }
 .input-play button.play {
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  flex: none;
 }
 
 .color-row {
@@ -546,7 +591,7 @@ button.ghost {
   gap: 8px;
 }
 .color-row .muted {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--mono);
   font-size: 12px;
 }
 /* crosshair size: live preview + slider */
@@ -561,7 +606,6 @@ button.ghost {
   flex-shrink: 0;
   border-radius: var(--radius-control);
   background: var(--tile-bg);
-  border: 1px solid var(--border);
   display: block;
 }
 .size-ctl {
@@ -576,45 +620,53 @@ button.ghost {
   accent-color: var(--accent);
 }
 .size-ctl .muted {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--mono);
   font-size: 12px;
 }
 .builder-note {
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 12px;
 }
 .builder-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 16px;
 }
-/* builder buttons match the section-head / navbar 32px scale */
 .builder-actions button {
-  height: 32px;
-  padding: 0 10px;
+  height: 36px;
+  padding: 0 14px;
 }
 
 /* presets */
+/* kova's List row: the rows share one surface, divided by hairlines. Not
+   overflow-clipped - the crosshair colour popover can open inside a row. */
 .presets {
   display: flex;
   flex-direction: column;
-  gap: 10px;
 }
 .preset {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-height: 68px;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
-  padding: 12px 14px 12px 4px;
-  transition:
-    border-color 0.12s,
-    box-shadow 0.12s;
+  padding: 12px 16px 12px 4px;
+  transition: background 150ms ease-out;
+}
+.preset + .preset {
+  border-top: 1px solid var(--border);
+}
+.preset:first-child {
+  border-top-left-radius: var(--radius-surface);
+  border-top-right-radius: var(--radius-surface);
+}
+.preset:last-child {
+  border-bottom-left-radius: var(--radius-surface);
+  border-bottom-right-radius: var(--radius-surface);
 }
 .preset:hover {
-  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--surface) 70%, var(--surface-raised));
 }
 .preset.dragging {
   opacity: 0.45;
@@ -655,7 +707,6 @@ body.row-dragging * {
   height: 44px;
   border-radius: var(--radius-control);
   background: var(--tile-bg);
-  border: 1px solid var(--border);
   display: block;
 }
 /* color dot overlapping the tile corner (.preset .tile-color outranks the
@@ -684,11 +735,10 @@ button.play {
   background: transparent;
   border-color: transparent;
   color: var(--fg-subtle);
-  font-size: 10px;
+  font-size: 12px;
 }
 button.play:hover {
   color: var(--accent);
-  border-color: var(--border);
 }
 /* hotkey chip - unset it reads as one of the quiet icon buttons; with a key it
    becomes a labeled chip */
@@ -697,11 +747,11 @@ button.play:hover {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  height: 30px;
-  min-width: 30px;
+  height: 32px;
+  min-width: 32px;
   padding: 0 8px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
+  font-family: var(--mono);
+  font-size: 12px;
   color: var(--fg-subtle);
   background: transparent;
   border-color: transparent;
@@ -712,11 +762,11 @@ button.play:hover {
 }
 .preset .hotkey.has-key {
   color: var(--fg);
-  border-color: var(--border-strong);
+  background: var(--surface-raised);
 }
 .preset .hotkey.recording {
   color: var(--accent);
-  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 /* an unassigned hotkey chip stays out of the way until hover */
 .preset .hotkey:not(.has-key) {
@@ -738,12 +788,11 @@ button.play:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   background: transparent;
-  border-color: transparent;
-  color: var(--fg-subtle);
+  color: var(--fg-muted);
   opacity: 0;
   transition: opacity 0.12s;
 }
@@ -760,11 +809,7 @@ button.play:hover {
 .preset .edit:hover,
 .preset .hotkey:not(.has-key):hover {
   color: var(--fg);
-  border-color: var(--border);
-}
-.preset.active-preset {
-  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent) inset;
+  background: var(--surface-raised);
 }
 .preset .info {
   flex: 1;
@@ -780,22 +825,20 @@ button.play:hover {
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   cursor: text;
-  transition:
-    background 0.12s,
-    border-color 0.12s;
+  transition: background 150ms ease-out;
 }
 .name-field:hover {
   background: var(--surface-raised);
-  border-color: var(--border);
 }
 .name-field:focus-within {
-  background: var(--surface-raised);
-  border-color: var(--border-strong);
+  background: var(--page);
+  border-color: var(--border);
 }
 .preset .name {
   font-weight: 600;
   font-family: inherit;
-  font-size: inherit;
+  font-size: 16px;
+  line-height: 22px;
   color: var(--fg);
   background: transparent;
   border: none;
@@ -875,24 +918,24 @@ button.play:hover {
   white-space: nowrap;
 }
 .preset .summary .sm-val {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .preset .summary .sm-sep {
-  font-size: 12px;
-  color: var(--fg-subtle);
+  font-size: 13px;
+  color: var(--fg-muted);
 }
 /* tiny muted label inside a summary chip: "sens 62", "hit milktea…" */
 .preset .summary .sm-k {
-  color: var(--fg-subtle);
-  font-size: 11px;
+  color: var(--fg-muted);
+  font-size: 13px;
   margin-right: 3px;
 }
 .preset .summary .sm-empty {
-  font-size: 12px;
-  color: var(--fg-subtle);
+  font-size: 13px;
+  color: var(--fg-muted);
 }
 .preset .actions {
   display: flex;
@@ -905,54 +948,45 @@ button.play:hover {
   display: inline-flex;
   width: 32px;
   height: 32px;
-  border: 1px solid var(--border);
   border-radius: var(--radius-pill);
-  padding: 3px;
+  padding: 4px;
   cursor: pointer;
-  transition: border-color 0.12s;
-}
-.xcolor:hover {
-  border-color: var(--border-strong);
 }
 .preset .apply {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 30px;
+  height: 32px;
   padding: 0 12px;
-  font-size: 13px;
 }
 .preset .apply svg {
   width: 14px;
   height: 14px;
 }
-/* Active preset: the Apply button becomes a calm, non-interactive marker. */
+/* Active preset: the Apply button becomes kova's status text, "In use". */
 .preset .apply.is-active {
   background: transparent;
-  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
   color: var(--success);
+  opacity: 1;
   cursor: default;
-  font-weight: 600;
 }
 /* Delete: quiet icon button, turns red on hover so it never reads as primary. */
 .preset .del {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   background: transparent;
-  border-color: transparent;
-  color: var(--fg-subtle);
+  color: var(--fg-muted);
 }
 .preset .del svg {
   width: 15px;
   height: 15px;
 }
 .preset .del:hover {
-  background: var(--danger-bg, color-mix(in srgb, var(--danger) 12%, transparent));
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
 }
 
@@ -963,7 +997,6 @@ button.play:hover {
 #hud-canvas {
   position: relative;
   background: var(--surface);
-  border: 1px solid var(--border-strong);
   border-radius: var(--radius-surface);
   overflow: hidden;
   /* faint thirds grid for orientation */
@@ -988,8 +1021,8 @@ button.play:hover {
   cursor: grabbing;
 }
 .hud-box span {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
   color: var(--fg);
   white-space: nowrap;
   pointer-events: none;
@@ -1056,8 +1089,8 @@ button.play:hover {
 }
 .hud-gap i {
   font-style: normal;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
+  font-family: var(--mono);
+  font-size: 12px;
   line-height: 1;
   color: var(--warning);
   background: var(--surface);
@@ -1072,15 +1105,16 @@ button.play:hover {
   gap: 14px;
   flex-wrap: wrap;
   background: var(--surface);
-  border: 1px solid var(--border);
   border-radius: var(--radius-surface);
-  padding: 10px 14px;
+  padding: 12px 16px;
   margin-top: 12px;
 }
 .hud-inspector button {
-  height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
+  height: 32px;
+  padding: 0 12px;
+}
+.hud-sel-name {
+  font-weight: 600;
 }
 /* align bar: one labeled row per group, evenly spaced */
 #hud-align {
@@ -1095,7 +1129,7 @@ button.play:hover {
   flex-wrap: wrap;
 }
 /* fixed label column so the button groups start on one vertical line */
-.align-row .field-label {
+.align-row .setting-desc {
   min-width: 130px;
 }
 .hud-scale {
@@ -1108,12 +1142,17 @@ button.play:hover {
   accent-color: var(--accent);
 }
 .hud-pos {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
 }
 .hud-note {
-  font-size: 12px;
-  margin-top: 10px;
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin-top: 12px;
+  max-width: 68ch;
+  text-wrap: pretty;
 }
 
 /* popover color picker (vanilla port of the website's ColorPicker) */
@@ -1194,7 +1233,7 @@ button.play:hover {
   outline: none;
   background: transparent;
   color: var(--fg);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--mono);
   font-size: 12px;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -1246,8 +1285,8 @@ button.play:hover {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
   padding: 3px 8px;
-  font-size: 11px;
-  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-size: 13px;
+  font-family: 'Geist', system-ui, sans-serif;
   font-weight: 400;
   line-height: 1.4;
   white-space: nowrap;
@@ -1263,7 +1302,7 @@ button.play:hover {
   transition-delay: 0.35s;
 }
 /* the topbar sits at the window's top edge - flip its tips below the control */
-.topbar [data-tip]::after {
+.titlebar [data-tip]::after {
   bottom: auto;
   top: calc(100% + 7px);
 }
@@ -1303,7 +1342,7 @@ button.play:hover {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
-  padding: 18px;
+  padding: 24px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 .modal-msg {
@@ -1316,8 +1355,8 @@ button.play:hover {
   margin-top: 16px;
 }
 .modal-actions button {
-  height: 32px;
-  padding: 0 12px;
+  height: 36px;
+  padding: 0 14px;
 }
 .modal .m-danger {
   background: var(--danger);
@@ -1331,9 +1370,8 @@ button.play:hover {
   overflow-y: auto;
 }
 .modal-help h3 {
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 17px;
-  margin-bottom: 10px;
+  font: 600 20px/28px 'Geist', sans-serif;
+  margin-bottom: 12px;
 }
 .modal-help ul {
   list-style: none;
@@ -1348,19 +1386,13 @@ button.play:hover {
   font-weight: 600;
 }
 
-/* health check - only a real failure tints the topbar icon (warnings stay
-   neutral there, but still show amber on the panel rows) */
-#health.health-fail {
-  color: var(--danger);
-}
 .modal-health {
   width: min(540px, calc(100vw - 48px));
   max-height: 82vh;
   overflow-y: auto;
 }
 .modal-health h3 {
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 17px;
+  font: 600 20px/28px 'Geist', sans-serif;
   margin-bottom: 12px;
 }
 .h-list {
@@ -1412,7 +1444,7 @@ button.play:hover {
 }
 .h-detail {
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
   word-break: break-word;
 }
@@ -1428,7 +1460,7 @@ button.play:hover {
   margin-bottom: 14px;
 }
 .wiz-step-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--fg-muted);
 }
 .wiz-dots {
@@ -1447,8 +1479,7 @@ button.play:hover {
   opacity: 1;
 }
 .wiz-body h3 {
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 19px;
+  font: 600 20px/28px 'Geist', sans-serif;
   margin-bottom: 8px;
 }
 .wiz-body p {
@@ -1473,229 +1504,1308 @@ button.play:hover {
   margin-top: 20px;
 }
 .wiz-actions button {
-  height: 32px;
+  height: 36px;
   padding: 0 14px;
 }
 .wiz-actions .wiz-spacer {
   margin-left: auto;
 }
 
-/* toast */
+/* toast: one line on a raised pill. No coloured outline - a small icon says
+   what kind it is, and a plain confirmation has none. 48px whatever's inside,
+   so a toast with a button is the same height as one without. */
 .toast {
   position: fixed;
   left: 50%;
   bottom: 22px;
   transform: translateX(-50%);
-  background: var(--surface);
+  background: var(--surface-raised);
   color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-surface);
-  padding: 12px 18px;
+  border-radius: 10px;
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 0 16px;
   max-width: 90%;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  animation: rise 0.2s ease;
+  font-size: 14px;
+  line-height: 20px;
+  box-shadow: 0 0 0 1px var(--border), 0 12px 32px rgba(0, 0, 0, 0.45);
+  animation: rise 220ms ease-out;
+  /* message left, button right: the button never wraps under the text */
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.toast.ok {
-  border-color: color-mix(in srgb, var(--success) 50%, var(--border));
+.toast:has(.toast-icon) {
+  padding-left: 14px;
 }
-.toast.warn {
-  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+.toast:has(.toast-action) {
+  padding-right: 10px;
 }
-.toast.err {
-  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+/* the two-line notices with Kovi (snipe, clip, reminders) need room above and below */
+.toast:has(.cl-toast) {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.toast-msg {
+  min-width: 0;
+}
+.toast-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.toast-icon.ok {
+  stroke: var(--success);
+}
+.toast-icon.warn {
+  stroke: var(--warning);
+}
+.toast-icon.err {
+  stroke: var(--danger);
+}
+.toast-icon.update {
+  stroke: var(--accent);
 }
 .toast b {
-  color: var(--warning);
+  font-weight: 600;
 }
 .toast-action {
-  margin-left: 12px;
-  padding: 4px 12px;
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
   font-size: 13px;
   font-weight: 600;
+  border-radius: 7px;
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-contrast);
-  vertical-align: middle;
 }
 .toast-action:hover {
   filter: brightness(1.05);
 }
 
-/* settings row under the preset list */
-.settings-row {
+/* ---- settings rows: label and one line on the left, the control on the right --- */
+.rows {
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  overflow: hidden;
+}
+.setting-row {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 18px;
-  padding-top: 14px;
+  align-items: center;
+  gap: 24px;
+  padding: 16px 20px;
+}
+.rows .setting-row + .setting-row {
   border-top: 1px solid var(--border);
 }
-/* for rows whose content is a labelled block rather than one inline control -
-   the default wrapping flex row broke long option labels across lines */
-.settings-row.stack {
-  display: block;
+.setting-row > button {
+  height: 32px;
+  padding: 0 12px;
+  flex: none;
 }
-/* the trailing note is a span, so it needs to be told to hold its own line here */
-.settings-row.stack .muted {
-  display: block;
-  margin-top: 8px;
-}
-
-/* Collapsible settings block. Native <details> so there's no open/closed state to
-   keep in sync - the summary shows the current choice, so collapsed still tells
-   you what's set. */
-/* baseline, not center: the label is 10px mono and the value 12px Inter, so
-   centring them left their baselines a pixel or two apart and read as sloppy.
-   The caret is the one thing that should be optically centred, so it opts out. */
-.fold > summary {
+.setting-text {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  cursor: pointer;
-  list-style: none;
-  padding: 2px 0;
-  /* it's a toggle - dragging across it shouldn't select the label text */
-  user-select: none;
+  flex-direction: column;
 }
-.fold > summary::-webkit-details-marker {
-  display: none;
+.setting-label {
+  font-weight: 500;
 }
-/* matching line-height so the two different type sizes share a clean baseline */
-.fold > summary .field-label {
-  line-height: 1.3;
-}
-/* caret drawn in CSS so it can rotate; ▸ closed, ▾ open. A rotated square's
-   visual mass sits toward one corner of its box, so it gets a fixed-size box,
-   center alignment and a small nudge rather than sitting on the text baseline. */
-.fold > summary::before {
-  content: '';
-  flex: 0 0 auto;
-  align-self: center;
-  box-sizing: border-box;
-  width: 6px;
-  height: 6px;
-  margin: 0 1px;
-  border-right: 1.5px solid var(--fg-muted);
-  border-bottom: 1.5px solid var(--fg-muted);
-  transform: rotate(-45deg);
-  transition: transform 120ms ease, border-color 120ms ease;
-}
-.fold[open] > summary::before {
-  /* open points down; shift up a touch so the ▾ reads as centred, not low */
-  transform: rotate(45deg) translate(-1px, -1px);
-}
-.fold > summary:hover::before {
-  border-color: var(--accent);
-}
-.fold > summary:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
-  outline-offset: 3px;
-  border-radius: var(--radius-control);
-}
-/* the current value, so a collapsed fold is still informative */
-.fold-value {
-  font-size: 12px;
-  line-height: 1.3;
-  color: var(--accent);
-}
-.fold[open] .fold-value {
-  display: none;
-}
-.settings-row .muted {
-  font-size: 12px;
-}
-
-/* Pick-one settings render as stacked cards rather than a row of native radios:
-   the three labels are long enough that inline ones wrapped mid-option, which
-   made it unclear which text belonged to which button. The selected card carries
-   the accent. */
-.opt-list {
-  display: grid;
-  gap: 6px;
-  margin: 6px 0 2px;
-}
-.opt {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 9px 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--surface-raised);
-  cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-.opt:hover {
-  border-color: var(--border-strong);
-}
-.opt:has(input:checked) {
-  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-.opt input[type='radio'] {
-  appearance: none;
-  -webkit-appearance: none;
-  margin: 1px 0 0;
-  position: relative;
-  flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.opt input[type='radio']:checked {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.opt input[type='radio']:checked::before {
-  content: '';
-  position: absolute;
-  inset: 4px;
-  border-radius: 50%;
-  background: var(--accent-contrast);
-}
-.opt input[type='radio']:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
-  outline-offset: 2px;
-}
-.opt-body {
-  display: grid;
-  gap: 2px;
-}
-.opt-title {
+.setting-desc {
   font-size: 13px;
+  color: var(--fg-muted);
+}
+/* the apply mode sits under the preset list, divided from it by a hairline */
+.apply-row {
+  margin-top: 32px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- segmented control: hairline-edged track, chosen segment on raised ---------
+ * Used both with buttons (theme, .on) and with real radios (apply mode). */
+.seg {
+  display: inline-flex;
+  flex: none;
+  padding: 1px;
+  border-radius: var(--radius-control);
+  background: var(--page);
+  border: 1px solid var(--border);
+}
+/* `.seg` wins over any container's button sizing (.page-actions gives buttons
+   36px): a segment is always 32px inside the track's 1px inset, so the track is
+   36 like every other control and the chosen segment sits evenly in it. */
+.seg button,
+.page-actions .seg button,
+.seg-opt span {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-subtle);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.seg button:hover,
+.seg-opt:hover span {
+  color: var(--fg);
+  background: transparent;
+}
+.seg button.on,
+.seg-opt input:checked + span {
+  background: var(--surface-raised);
   color: var(--fg);
 }
-.opt:has(input:checked) .opt-title {
-  color: var(--accent);
+.seg-opt {
+  position: relative;
 }
-.opt-desc {
-  font-size: 12px;
-  color: var(--fg-muted);
-  line-height: 1.45;
+/* the radio stays a real, focusable input - only its circle is hidden */
+.seg-opt input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
 }
-/* inline duration hint, so the cost sits with the title instead of padding it */
-.opt-tag {
-  margin-left: 7px;
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-strong);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--fg-muted);
-  vertical-align: 1px;
+.seg-opt input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
-.opt:has(input:checked) .opt-tag {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  color: var(--accent);
+
+/* empty and error states: Kovi, a title, a line, a button - centred */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 40px 0;
+  text-align: center;
+  color: var(--fg-subtle);
+  font-size: 14px;
+  line-height: 20px;
 }
+.empty svg {
+  margin-bottom: 10px;
+}
+.empty p {
+  margin: 0;
+  max-width: 320px;
+}
+.empty .empty-title {
+  color: var(--fg);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.empty button {
+  margin-top: 10px;
+  height: 32px;
+  padding: 0 12px;
+}
+/* Presets, while the game is closed: asleep Kovi and why that's fine */
+.closed-note {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+  padding: 10px 16px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  color: var(--fg-subtle);
+  font-size: 14px;
+}
+.closed-note svg {
+  flex: none;
+}
+body[data-game='on'] .closed-note {
+  display: none;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translate(-50%, 8px);
+    transform: translate(-50%, 6px);
   }
+}
+
+/* ---- kova account card (top of the sidebar) ---------------------------------- */
+.kova-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+}
+.kova-card:empty {
+  display: none;
+}
+.kova-card .kc-title {
+  font-weight: 600;
+}
+.kova-card .kc-desc {
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.kova-card .kc-code {
+  font: 500 20px/28px var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.kova-card button {
+  height: 32px;
+  padding: 0 12px;
+}
+/* kova's "solid" button: fg on page. Sign in, Copy - strong, not the brand action */
+button.solid {
+  background: var(--fg);
+  color: var(--page);
+  font-weight: 600;
+}
+button.solid:hover {
+  background: var(--fg);
+  filter: brightness(0.92);
+}
+/* signed in: the card is a link to your profile */
+/* .kova-card button gives every card button 32px and side padding; the profile
+   link is the whole card, so it takes neither - the card's 12px is the only inset */
+.kova-card .kova-me {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  height: auto;
+  background: transparent;
+  text-align: left;
+}
+.kova-card .kova-me:hover {
+  background: transparent;
+}
+.kova-me .kc-av {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-raised);
+  color: var(--fg-subtle);
+  font-weight: 600;
+  font-size: 13px;
+}
+.kova-me .kc-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.kova-me .kc-title,
+.kova-me .kc-desc {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kc-rank {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+#kova-rows:empty {
+  display: none;
+}
+/* settings: small group headings, groups closer than page sections */
+#settings-view .st-group + .st-group {
+  margin-top: 28px;
+}
+.st-head {
+  margin: 0 0 10px;
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--fg-subtle);
+}
+/* the Connect OBS dialog */
+.modal.obs-modal {
+  width: min(460px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.obs-modal h2 {
+  margin: 0;
+}
+.obs-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--fg-subtle);
+}
+.obs-steps li {
+  display: flex;
+  gap: 12px;
+}
+.obs-steps b {
+  color: var(--fg);
+  font-weight: 500;
+}
+.obs-n {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+.obs-fields {
+  display: grid;
+  grid-template-columns: 1fr 96px;
+  gap: 12px;
+}
+.obs-fields .obs-pass {
+  grid-column: 1 / -1;
+}
+.obs-modal .modal-actions {
+  margin-top: 0;
+}
+
+/* ---- switch: 38x22 pill, accent when on --------------------------------------- */
+/* .setting-row > button and .page-actions button size their controls to 32/36px;
+   the switch opts out of both */
+.setting-row > .switch,
+.page-actions .switch,
+.switch {
+  width: 38px;
+  height: 22px;
+  flex: none;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--switch-off);
+  display: flex;
+  justify-content: flex-start;
+}
+.switch::after {
+  content: '';
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+}
+.switch[aria-checked='true'] {
+  background: var(--accent);
+  justify-content: flex-end;
+}
+.switch:hover {
+  background: var(--switch-off);
+  filter: brightness(1.1);
+}
+.switch[aria-checked='true']:hover {
+  background: var(--accent);
+}
+
+/* ---- rank progress -------------------------------------------------------------- */
+#progress-view > section + section,
+#progress-view > section + .pg-list {
+  margin-top: 16px;
+}
+.pg-note {
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin: -16px 0 16px;
+}
+.pg-note-list {
+  margin: 16px 0 0;
+}
+.pg-strip {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 16px 16px 20px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+}
+.pg-strip-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pg-strip .setting-desc {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pg-strip button {
+  height: 36px;
+  padding: 0 14px;
+  flex: none;
+}
+.pg-now {
+  padding: 18px 20px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pg-now-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.pg-now-name,
+.pg-now-odds {
+  display: flex;
+  flex-direction: column;
+}
+.pg-now-name {
+  flex: 1;
+  min-width: 0;
+}
+.pg-now-title {
+  font: 600 20px/28px 'Geist', sans-serif;
+}
+.pg-now-odds {
+  text-align: right;
+  font-weight: 500;
+}
+.pg-bar {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+.pg-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.pg-bar-lg {
+  height: 8px;
+}
+.pg-list {
+  margin-top: 16px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+}
+.pg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px 60px 76px 104px 60px;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  padding: 6px 12px 6px 16px;
+}
+.pg-row + .pg-row {
+  border-top: 1px solid var(--border);
+}
+.pg-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pg-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pg-odds {
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.pg-rank {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--fg-subtle);
+  white-space: nowrap;
+}
+.pg-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+}
+.pg-best {
+  text-align: right;
+}
+.pg-left {
+  font-size: 13px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.pg-left .num {
+  color: var(--fg);
+}
+.pg-row .pg-play {
+  height: 32px;
+  padding: 0;
+}
+/* benchmark picker: a plain list under the button */
+.pg-menu-wrap {
+  position: relative;
+}
+.pg-menu-wrap > button {
+  height: 36px;
+  padding: 0 14px;
+}
+.pg-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border), 0 10px 30px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+}
+.pg-menu > button {
+  height: 36px;
+  padding: 0 10px;
+  text-align: left;
+  background: transparent;
+}
+.pg-menu > button:hover {
+  background: var(--surface-raised);
+}
+
+/* ---- rank-up pop-up (Kovi, bottom right) ------------------------------------- */
+.rankup {
+  /* top right, under the title bar: the toast owns the bottom edge */
+  position: fixed;
+  right: 20px;
+  top: 64px;
+  z-index: 250;
+  width: 340px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border), 0 10px 30px rgba(0, 0, 0, 0.35);
+  animation: rankup-rise 220ms ease-out;
+}
+@keyframes rankup-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rankup {
+    animation: none;
+  }
+}
+.rankup svg {
+  flex: none;
+}
+.rankup-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rankup-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font: 600 16px/22px 'Geist', sans-serif;
+}
+.rankup-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rankup-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+}
+.rankup-line {
+  font-size: 13px;
+  color: var(--fg-subtle);
+}
+.rankup-meta {
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+/* ---- sessions ------------------------------------------------------------------- */
+.ss-cal {
+  padding: 20px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ss-cal-top {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 4px;
+}
+.ss-big {
+  font-size: 22px;
+  line-height: 28px;
+}
+.ss-spacer {
+  flex: 1;
+}
+/* year stepper: one width however many years there are */
+.ss-year {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ss-year .icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-control);
+  background: var(--surface-raised) !important;
+  color: var(--fg);
+}
+.ss-year .icon-btn:disabled {
+  background: transparent !important;
+  opacity: 0.35;
+}
+.ss-year .icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.ss-year-n {
+  min-width: 56px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+/* month names sit over the week each month starts in, and pick that month */
+.ss-months,
+.ss-grid {
+  display: grid;
+  gap: 2px;
+}
+.ss-months button {
+  height: 22px;
+  padding: 0 4px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 16px;
+  background: transparent;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.ss-months button:hover {
+  color: var(--fg);
+  background: transparent;
+}
+.ss-months button.on {
+  background: var(--surface-raised);
+  color: var(--fg);
+}
+.ss-grid {
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 10px);
+}
+.ss-cell {
+  display: block;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  border-radius: 2px;
+}
+button.ss-cell:hover {
+  outline: 1px solid var(--fg-muted);
+  outline-offset: 0;
+}
+button.ss-cell:disabled {
+  opacity: 1;
+  pointer-events: none;
+}
+.ss-l0 {
+  background: var(--surface-raised);
+}
+.ss-l1 {
+  background: color-mix(in srgb, var(--accent) 30%, var(--surface-raised));
+}
+.ss-l2 {
+  background: color-mix(in srgb, var(--accent) 60%, var(--surface-raised));
+}
+.ss-l3 {
+  background: var(--accent);
+}
+.ss-today {
+  box-shadow: 0 0 0 1.5px var(--fg);
+}
+.ss-future {
+  box-shadow: inset 0 0 0 1px var(--surface-raised);
+}
+.ss-out {
+  visibility: hidden;
+}
+.ss-dim {
+  opacity: 0.3 !important;
+}
+.ss-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.ss-legend .ss-cell {
+  width: 10px;
+  height: 10px;
+}
+.ss-list-head {
+  justify-content: flex-start;
+  align-items: baseline;
+  gap: 8px;
+}
+.ss-list-head button {
+  height: 32px;
+  padding: 0 12px;
+  align-self: center;
+}
+/* a day row is a whole button: date and what you played, runs, PBs, time */
+.ss-day {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 64px 80px 16px;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 56px;
+  padding: 6px 16px;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--fg);
+}
+.ss-day + .ss-day {
+  border-top: 1px solid var(--border);
+}
+.ss-day:first-child {
+  border-radius: var(--radius-surface) var(--radius-surface) 0 0;
+}
+.ss-day:last-child {
+  border-radius: 0 0 var(--radius-surface) var(--radius-surface);
+}
+.ss-day:hover {
+  background: color-mix(in srgb, var(--surface) 70%, var(--surface-raised));
+}
+.ss-day svg {
+  color: var(--fg-muted);
+}
+.ss-n {
+  font-size: 13px;
+  color: var(--fg-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+.ss-n .num {
+  color: var(--fg);
+}
+.ss-time {
+  text-align: right;
+  font-size: 13px;
+  color: var(--fg-subtle);
+}
+/* the recap */
+.ss-strip {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 20px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  margin-bottom: 40px;
+}
+.ss-strip svg {
+  flex: none;
+}
+.ss-stats {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.ss-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ss-stat .num {
+  font-size: 26px;
+  line-height: 32px;
+}
+.ss-pb-row {
+  grid-template-columns: minmax(0, 1fr) 72px 60px 110px;
+}
+.ss-played-row {
+  grid-template-columns: minmax(0, 1fr) 64px 96px 72px;
+}
+#sessions-view .ss-cal + .block {
+  margin-top: 40px;
+}
+
+/* ---- autoclipper ---------------------------------------------------------------- */
+.status-err {
+  color: var(--danger);
+}
+.cl-form {
+  align-items: flex-end;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+}
+.cl-form .field {
+  flex: 1;
+  min-width: 0;
+}
+.cl-form .cl-port {
+  flex: 0 0 96px;
+}
+.cl-form > button {
+  height: 36px;
+  padding: 0 14px;
+}
+.cl-hint {
+  padding: 0 20px 16px;
+}
+.cl-path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cl-recent {
+  margin-top: 40px;
+}
+.cl-row {
+  grid-template-columns: minmax(0, 1fr) 72px 110px 60px;
+}
+.cl-why {
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
+}
+.cl-row .cl-play {
+  height: 32px;
+  padding: 0;
+}
+/* the clip-saved toast carries Kovi */
+.cl-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  vertical-align: middle;
+}
+.cl-toast svg {
+  flex: none;
+}
+.cl-b {
+  font-weight: 600;
+}
+
+/* ---- tournaments ------------------------------------------------------------------ */
+.nav-live {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--success);
+}
+.tn-live {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px;
+  margin-bottom: 40px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+}
+.tn-live svg {
+  flex: none;
+}
+.tn-live-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tn-live-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tn-live-top .setting-desc {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tn-vs {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.tn-vs-name {
+  font: 600 20px/28px 'Geist', sans-serif;
+}
+.tn-score {
+  font-size: 22px;
+  line-height: 28px;
+}
+.tn-scen {
+  color: var(--fg);
+  font-weight: 500;
+}
+.tn-live-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+}
+.tn-live-actions button {
+  height: 36px;
+  padding: 0 14px;
+}
+.tn-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  padding: 6px 12px 6px 16px;
+}
+.tn-row + .tn-row {
+  border-top: 1px solid var(--border);
+}
+.tn-row .pg-name {
+  flex: 1;
+}
+/* the tournament name opens it on kova; reads as a title, not a button */
+.tn-name {
+  align-self: flex-start;
+  padding: 0;
+  height: auto;
+  background: transparent;
+  font-weight: 500;
+  text-align: left;
+}
+.tn-name:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+.tn-row > button {
+  height: 32px;
+  padding: 0 12px;
+  flex: none;
+}
+.tn-state {
+  font-size: 13px;
+  white-space: nowrap;
+}
+.toast b.tn-toast-title {
+  color: var(--fg);
+}
+
+/* ---- snipe alert: name on top, the scores under it ---------------------------- */
+.sn-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sn-line {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--fg-muted);
+}
+.sn-them {
+  color: var(--fg);
+}
+
+/* ---- weekly challenge -------------------------------------------------------------- */
+.ch-tabs {
+  margin-bottom: 20px;
+}
+.ch-card {
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  overflow: hidden;
+}
+.ch-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+}
+.ch-head .pg-name {
+  flex: 1;
+}
+.ch-head button {
+  height: 32px;
+  padding: 0 12px;
+  flex: none;
+}
+.ch-scen {
+  font: 600 20px/28px 'Geist', sans-serif;
+}
+.ch-strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+.ch-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  padding: 0 20px;
+  border-top: 1px solid var(--border);
+}
+.ch-place {
+  color: var(--fg-muted);
+}
+.ch-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ch-you {
+  background: var(--surface-raised);
+}
+.ch-you .ch-name {
+  color: var(--accent);
+}
+.ch-none {
+  margin: 0;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--border);
+}
+.ch-foot {
+  margin: 8px 0 32px;
+}
+.ch-won {
+  color: var(--accent);
+}
+.ch-score {
+  width: 72px;
+  text-align: right;
+}
+
+/* ---- rank progress: a scenario's score graph -------------------------------------- */
+/* scenario names open the graph; they read as titles, not buttons */
+.pg-open {
+  padding: 0;
+  height: auto;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.pg-open:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+.pg-back {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: none;
+  align-self: flex-start;
+  margin-top: 4px;
+  display: grid;
+  place-items: center;
+}
+.pg-back svg {
+  width: 16px;
+  height: 16px;
+}
+.pg-stats {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  margin-bottom: 20px;
+}
+.pg-stat {
+  display: flex;
+  flex-direction: column;
+}
+.pg-stat .num {
+  font-size: 18px;
+  line-height: 26px;
+}
+.pg-stat .setting-desc {
+  white-space: nowrap;
+}
+/* a halo in the card's colour, so a rank label stays readable over the dots */
+.pg-line-label {
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+.pg-graph-card {
+  position: relative;
+  padding: 20px;
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+}
+.pg-graph {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  font-family: 'Geist', sans-serif;
+}
+.pg-grid {
+  stroke: var(--border);
+}
+.pg-axis {
+  fill: var(--fg-muted);
+  font-size: 11px;
+}
+.pg-line-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+.pg-dot-run {
+  fill: var(--fg-muted);
+  opacity: 0.55;
+}
+.pg-dot-pb {
+  fill: var(--accent);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.pg-dot-last {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  opacity: 0.6;
+}
+.pg-best-line {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.pg-fill-top {
+  stop-color: var(--accent);
+  stop-opacity: 0.22;
+}
+.pg-fill-bottom {
+  stop-color: var(--accent);
+  stop-opacity: 0;
+}
+.pg-hit {
+  fill: transparent;
+  cursor: default;
+}
+.pg-tip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 10px));
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 0 0 1px var(--border), 0 8px 20px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+}
+.pg-tip .num {
+  font-weight: 600;
+}
+.pg-tip-pb {
+  color: var(--accent);
+}
+.pg-key-dot.pg-key-pb {
+  background: var(--accent);
+}
+.pg-graph-key {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.pg-graph-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.pg-graph-key {
+  justify-content: flex-start;
+  gap: 20px;
+  margin-top: 0;
+}
+.pg-graph-key > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.pg-key-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--fg-muted);
+}
+.pg-key-line {
+  width: 14px;
+  height: 2px;
+  background: var(--accent);
+}
+.pg-graph-empty {
+  margin: 0;
+}
+
+/* Kovi next to text: the sign-in wait, champion placements */
+.kc-wait {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.kovi-champ {
+  flex: none;
+}
+.tn-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }

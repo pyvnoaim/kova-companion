@@ -81,6 +81,51 @@ function hexToColor(hex) {
   return `X=${v(0)} Y=${v(2)} Z=${v(4)}`
 }
 
+// ---- shared by the page scripts (progress.js, sessions.js, clips.js) ----------
+/* exported fmt, shortScenario, keyOf, dateOf, dayLabel, fmtDur, clock, MONTHS, emptyState */
+// "VT Pasu Intermediate S5" reads as "Pasu" inside its own playlist (and in the
+// rank-up pop-up, where the full name wrapped onto two lines)
+const DIFFICULTY_WORDS = 'novice|intermediate|advanced|easier|easy|medium|harder|hard|expert'
+function shortScenario(n, difficulty) {
+  const word = difficulty ? difficulty.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : DIFFICULTY_WORDS
+  return n.replace(/^VT\s+/, '').replace(new RegExp(`\\s+(${word})\\b.*$`, 'i'), '') || n
+}
+const fmt = (n) => (n == null ? '-' : Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 }))
+
+const p2 = (n) => String(n).padStart(2, '0')
+
+// ---- Kovi in empty and error states ------------------------------------------------
+// The moods exactly as on the mascot canvas (Idle, Uh oh, Asleep).
+const KOVI = {
+  idle: '<svg viewBox="0 0 120 200" width="44" height="74" aria-hidden="true"><ellipse cx="60" cy="190" rx="30" ry="5" fill="#000" opacity="0.5"/><rect x="30" y="16" width="60" height="152" rx="30" fill="#0d0d0f" stroke="#ff9a9a" stroke-width="4"/><ellipse cx="69" cy="38" rx="13" ry="6" fill="#2c2c33" transform="rotate(-24 69 38)"/><rect x="45" y="62" width="8" height="14" rx="4" fill="#ff9a9a"/><rect x="67" y="62" width="8" height="14" rx="4" fill="#ff9a9a"/></svg>',
+  uhoh: '<svg viewBox="0 0 120 200" width="44" height="74" aria-hidden="true" overflow="visible"><ellipse cx="60" cy="190" rx="30" ry="5" fill="#000" opacity="0.5"/><rect x="30" y="16" width="60" height="152" rx="30" fill="#0d0d0f" stroke="#ff9a9a" stroke-width="4"/><ellipse cx="69" cy="38" rx="13" ry="6" fill="#2c2c33" transform="rotate(-24 69 38)"/><rect x="44" y="58" width="10" height="20" rx="5" fill="#ff9a9a"/><rect x="66" y="58" width="10" height="20" rx="5" fill="#ff9a9a"/><path d="M102 8v14" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/><circle cx="102" cy="32" r="3" fill="#fff"/></svg>',
+  asleep: '<svg viewBox="0 0 120 200" width="24" height="40" aria-hidden="true" overflow="visible"><ellipse cx="60" cy="190" rx="30" ry="5" fill="#000" opacity="0.5"/><rect x="30" y="16" width="60" height="152" rx="30" fill="#0d0d0f" stroke="#71717a" stroke-width="6"/><ellipse cx="69" cy="38" rx="13" ry="6" fill="#232328" transform="rotate(-24 69 38)"/><path d="M44 71h10M66 71h10" fill="none" stroke="#71717a" stroke-width="6" stroke-linecap="round"/><path d="M98 14h11l-11 13h11" fill="none" stroke="#a1a1aa" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+}
+// One shape for every empty or error state: Kovi, a title, a line, a button.
+const emptyState = (mood, title, line = '', button = '') =>
+  `<div class="empty">${KOVI[mood]}${title ? `<p class="empty-title">${title}</p>` : ''}${line ? `<p>${line}</p>` : ''}${button}</div>`
+// spelled out: en-GB prints September as "Sept" on some ICU builds and "Sep" on others
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const keyOf = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
+const dateOf = (key) => {
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+function dayLabel(key) {
+  const today = keyOf(new Date())
+  const yest = new Date()
+  yest.setDate(yest.getDate() - 1)
+  if (key === today) return 'Today'
+  if (key === keyOf(yest)) return 'Yesterday'
+  return dateOf(key).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+}
+function fmtDur(ms) {
+  const m = Math.round(ms / 60000)
+  if (m < 1) return 'under 1m'
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${p2(m % 60)}m`
+}
+const clock = (ts) => new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+
 // ---- popover color picker (vanilla port of the website's ColorPicker) ---------
 // One shared fixed-position popover: SV pad + hue slider + hex field. Fixed so
 // no row/scroller overflow can clip it. Hue lives in state - it can't be
@@ -341,7 +386,7 @@ function showHelp() {
         <li><b>Once:</b> select the theme starting <b>!KovaPreset</b> in-game so themes can swap live.</li>
         <li><b>Re-enter now</b> reloads your scenario via Steam so changes kick in. The run auto-starts, press your reset bind when ready.</li>
         <li><b>Hotkeys</b> (bolt icon) work even in-game, and stay alive in the tray when you close the window.</li>
-        <li><b>Restore original setup</b> reverts everything back to before KovaPresets.</li>
+        <li><b>Restore original</b> reverts everything back to before kova companion.</li>
         <li><b>One rule:</b> while a preset is applied, change these settings here, not in KovaaK's, or the game overwrites them.</li>
       </ul>
       <div class="modal-actions"><button class="m-ok primary">Got it</button></div>
@@ -351,7 +396,7 @@ function showHelp() {
 // ---- health check ---------------------------------------------------------------
 // Diagnostics for the silent failures: game path moved/uninstalled, settings
 // files not writable, PrimaryUserSettings missing/corrupt, live-theme not armed.
-// The heart button in the topbar reflects the last result; a fail auto-opens the
+// The health check button in Settings reflects the last result; a fail auto-opens the
 // panel (once, and never over the first-run wizard - it owns that path).
 let healthAutoShown = false
 
@@ -382,7 +427,7 @@ async function runHealth({ autoOpen = false } = {}) {
   } catch {
     return null
   }
-  // Only a genuine failure tints the topbar icon (red) - warnings (e.g. the
+  // Only a genuine failure tints the Settings button (red) - warnings (e.g. the
   // proxy theme not armed) are near-permanent for many users, so tinting on them
   // would leave the icon lit forever and drain its signal. Warnings still show
   // amber inside the panel rows.
@@ -468,7 +513,7 @@ function showWizard() {
     () => `
       <div class="wiz-head"><span class="wiz-step-label">Step 1 of 3</span>${dots()}</div>
       <div class="wiz-body">
-        <h3>Welcome to KovaPresets</h3>
+        <h3>Welcome to kova companion</h3>
         <p>Save your KovaaK's <b>crosshair, theme, sounds and sens</b> as presets, then switch
         between them with one click or a global hotkey - without alt-tabbing out of a run.</p>
         <p>Two quick checks and one 15-second in-game step and you're set.</p>
@@ -478,7 +523,7 @@ function showWizard() {
       <div class="wiz-head"><span class="wiz-step-label">Step 2 of 3</span>${dots()}</div>
       <div class="wiz-body">
         <h3>Checking your setup</h3>
-        <p>KovaPresets writes KovaaK's own settings files. Making sure it can find them and write to them:</p>
+        <p>kova companion writes KovaaK's own settings files. Making sure it can find them and write to them:</p>
         <ul class="h-list"><li class="muted">Running checks…</li></ul>
       </div>
       <div class="wiz-actions"><button class="wiz-back">← Back</button><button class="wiz-next primary wiz-spacer">Next →</button></div>`,
@@ -486,7 +531,7 @@ function showWizard() {
       <div class="wiz-head"><span class="wiz-step-label">Step 3 of 3</span>${dots()}</div>
       <div class="wiz-body">
         <h3>Arm live theme swapping</h3>
-        <p>Themes normally only load when the game starts. KovaPresets gets around that with one
+        <p>Themes normally only load when the game starts. kova companion gets around that with one
         proxy theme, <b>!KovaPreset</b>, that you select in-game <b>once</b> - after that, theme
         presets apply live when you open the settings screen.</p>
         <p><b>Do this:</b> create the proxy below, then in KovaaK's go to
@@ -550,7 +595,7 @@ function showWizard() {
 }
 
 // An update downloads silently in the background. Two ways in, because the app
-// spends most of its life in the tray: a topbar button that stays until it's
+// spends most of its life in the tray: a title bar button that stays until it's
 // used, and a toast for whoever happens to be looking.
 //
 // The toast alone was the whole notification, and it could never be seen in the
@@ -563,12 +608,13 @@ function maybeOfferUpdate() {
   const btn = $('#update-btn')
   btn.classList.toggle('hidden', !v)
   if (!v) return
-  btn.textContent = `Update ${v}` // kept short - the topbar has no room to spare
+  btn.textContent = 'Restart to update'
+  btn.dataset.tip = `Version ${v} is downloaded - restart to install it`
   // Only spend the one-shot toast on a window that can actually be seen.
   if (document.visibilityState !== 'visible' || updateOfferedFor === v) return
   updateOfferedFor = v
-  toast(`Version ${esc(v)} is ready to install.`, 'ok', 60000, {
-    label: 'Restart now',
+  toast(`Version ${esc(v)} is ready.`, 'update', 60000, {
+    label: 'Restart',
     run: () => window.kova.installUpdate(),
   })
 }
@@ -576,11 +622,25 @@ $('#update-btn').addEventListener('click', () => window.kova.installUpdate())
 // Coming back to the window is the moment the toast can finally land.
 document.addEventListener('visibilitychange', maybeOfferUpdate)
 
-// action = { label, run }: renders a button inside the toast (e.g. "Re-enter now")
+// The kind's icon. 'ok' only gets its check when there's a next step to take;
+// a plain confirmation ("Preset exported.") stands on its own.
+const TOAST_ICONS = {
+  ok: '<path d="M20 6L9 17l-5-5"/>',
+  warn: '<path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17.5v.5"/>',
+  err: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
+  update: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+}
+
+// kind: '' | 'ok' | 'warn' | 'err' | 'update'
+// action = { label, run }: renders a button inside the toast (e.g. "Re-enter")
 function toast(msg, kind = '', ms = 3600, action = null) {
   const el = $('#toast')
-  el.className = `toast ${kind}`
-  el.innerHTML = msg
+  el.className = 'toast'
+  // the Kovi notices carry their own picture
+  const showIcon = TOAST_ICONS[kind] && (kind !== 'ok' || action) && !msg.includes('cl-toast')
+  const icon = showIcon ? `<svg class="toast-icon ${kind}" viewBox="0 0 24 24" aria-hidden="true">${TOAST_ICONS[kind]}</svg>` : ''
+  // the message wraps in its own box, so a button never drops under long text
+  el.innerHTML = `${icon}<span class="toast-msg">${msg}</span>`
   if (action) {
     const btn = document.createElement('button')
     btn.className = 'toast-action'
@@ -775,31 +835,32 @@ function renderActive(active) {
   const hitBits = []
   if (f.HitPitch != null) hitBits.push(`pitch ${round2(f.HitPitch)}`)
   if (f.HitVolume != null) hitBits.push(`volume ${round2(f.HitVolume)}`)
+  // Value on top, a quiet label under it (kova's Stat). Numbers in mono so they
+  // line up; the unit trails in the label grey.
   $('#active').innerHTML = `
     <div class="stat">
-      <div class="label">Theme</div>
       <div class="value">${esc(theme.name) || '-'}</div>
-      ${theme.liveSwap ? '<div class="sub" data-tip="The game runs the !KovaPreset proxy theme, so theme changes apply without restarting - just open settings once">live swap on</div>' : ''}
+      <div class="label">Theme${theme.liveSwap ? ' <span class="ok-text" data-tip="The game runs the !KovaPreset proxy theme, so theme changes apply without restarting - just open settings once">live swap on</span>' : ''}</div>
     </div>
     <div class="stat">
-      <div class="label">Crosshair</div>
       <div class="value">${esc(noExt(w.CrosshairFile)) || '-'}</div>
-      <div class="sub">scale ${esc(w.CrosshairScale) || '1.0'}</div>
+      <div class="label">Crosshair, size <span class="num">${esc(w.CrosshairScale) || '1.0'}</span></div>
     </div>
     <div class="stat">
-      <div class="label">Hit sound</div>
       <div class="value">${esc(w.BodyHitSound) || '-'}</div>
-      ${hitBits.length ? `<div class="sub">${hitBits.join(' · ')}</div>` : ''}
+      <div class="label">Hit sound${hitBits.length ? `, ${hitBits.join(', ')}` : ''}</div>
     </div>
     <div class="stat">
-      <div class="label">Kill / spawn</div>
       <div class="value">${esc(s.KillConfirmedSound) || '-'}</div>
-      <div class="sub">${esc(s.SpawnSound) || '-'}</div>
+      <div class="label">Kill sound, spawn ${esc(s.SpawnSound) || '-'}</div>
     </div>
     <div class="stat">
-      <div class="label">Sens / DPI</div>
-      <div class="value">${sens ? `${esc(round2(Number(sens.value)))} ${esc(sens.scale)}` : '-'}</div>
-      <div class="sub">${[dpi != null ? `DPI ${esc(dpi)}` : '', sens?.override ? 'scenario override' : ''].filter(Boolean).join(' · ') || '&nbsp;'}</div>
+      <div class="value num">${sens ? `${esc(round2(Number(sens.value)))} <span class="unit">${esc(sens.scale)}</span>` : '-'}</div>
+      <div class="label">Sensitivity${sens?.override ? ', scenario override' : ''}</div>
+    </div>
+    <div class="stat">
+      <div class="value num">${dpi != null ? esc(dpi) : '-'}</div>
+      <div class="label">DPI</div>
     </div>`
 }
 
@@ -869,8 +930,8 @@ function renderPresets(presets, active) {
         <button class="hotkey${preset.hotkey ? ' has-key' : ''}" data-tip="${preset.hotkey ? `${esc(preset.hotkey)} - click to change, Backspace clears` : 'Set global hotkey'}">
           ${preset.hotkey ? esc(preset.hotkey) : ICON.key}
         </button>
-        <button class="apply ${activeNow ? 'is-active' : 'primary'}" ${activeNow ? 'disabled' : ''}>
-          ${activeNow ? ICON.check + 'Active' : 'Apply'}
+        <button class="apply${activeNow ? ' is-active' : ''}" ${activeNow ? 'disabled' : ''}>
+          ${activeNow ? 'In use' : 'Apply'}
         </button>
       </div>`
 
@@ -912,7 +973,7 @@ function renderPresets(presets, active) {
     })
     row.querySelector('.exp').addEventListener('click', async () => {
       const res = await window.kova.exportPresets(preset.id)
-      if (res.ok) toast('Preset exported - send the file to anyone with KovaPresets.', 'ok')
+      if (res.ok) toast('Preset exported.')
       else if (!res.canceled) toast(esc(res.error || 'Export failed.'), 'err')
     })
     const applyBtn = row.querySelector('.apply')
@@ -994,14 +1055,14 @@ function recordHotkey(preset, chip) {
     if (!main) return
     const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift'].filter(Boolean)
     if (!mods.length && !/^F\d+$/.test(main)) {
-      toast('Use a modifier (Ctrl/Alt/Shift) or an F-key, so typing elsewhere stays safe.', 'warn')
+      toast('Use Ctrl, Alt, Shift or an F-key.', 'warn')
       return
     }
     const accel = [...mods, main].join('+')
     current.presets = await window.kova.setHotkey(preset.id, accel)
     cleanup()
     renderPresets(current.presets, current.active)
-    toast(`Hotkey <b>${esc(accel)}</b> set - works anywhere, even in-game.`, 'ok')
+    toast(`Hotkey <b>${esc(accel)}</b> set.`)
   }
   const cleanup = () => {
     window.removeEventListener('keydown', onKey, true)
@@ -1022,9 +1083,9 @@ async function reenterScenario() {
   const res = await window.kova.restartScenario()
   if (res.ok)
     toast(
-      `Re-entering <b>${esc(res.scenario)}</b>${res.hopped ? ' (brief detour so the game reloads it)' : ''} - new crosshair & sounds load with it. The run starts right away, hit your reset bind when ready.`,
+      `Re-entering <b>${esc(res.scenario)}</b>. Reset when ready.`,
       'ok',
-      6500
+      5000
     )
   else toast(esc(res.error || "Couldn't re-enter the scenario."), 'err')
 }
@@ -1035,9 +1096,9 @@ async function restartGame() {
   const res = await window.kova.restartGame()
   if (res.ok)
     toast(
-      `Restarting KovaaK's${res.scenario ? ` and reopening <b>${esc(res.scenario)}</b>` : ''} - sens and DPI load with it.`,
+      "Restarting KovaaK's. Sens and DPI load with it.",
       'ok',
-      7000
+      5000
     )
   else toast(esc(res.error || "Couldn't restart KovaaK's."), 'err')
 }
@@ -1072,9 +1133,9 @@ async function applyPreset(preset) {
     // below apply, so this is the one case that replaces them outright.
     if (followUp?.mode === 'restart' && followUp.ok)
       return toast(
-        `Restarting KovaaK's - everything applies, including sens, DPI and theme.${followUp.scenario ? ` Reopening <b>${esc(followUp.scenario)}</b>.` : ''}`,
+        "Restarting KovaaK's to apply everything.",
         'ok',
-        7000
+        5000
       )
     // Everything else still needs the player to do something, so the guidance is
     // built up rather than replaced: a re-enter covers the weapon file but NOT the
@@ -1088,38 +1149,32 @@ async function applyPreset(preset) {
       running && launchOnly?.length
         ? launchOnly.map((f) => `${f.field} ${round2(f.value)}`).join(' & ')
         : ''
-    const restartNote = pending
-      ? ` <b>${esc(pending)}</b> needs a KovaaK's restart, or set it by hand in the game's settings.`
-      : ''
+    const restartNote = pending ? ` <b>${esc(pending)}</b> applies after a restart.` : ''
     // one action slot: re-entry is the cheap common case, but when the only thing
     // outstanding needs a relaunch, offer that instead of a no-op button
     const reenter =
       weaponChanged && running && !reentered
-        ? { label: 'Re-enter now', run: reenterScenario }
+        ? { label: 'Re-enter', run: reenterScenario }
         : pending
           ? { label: "Restart KovaaK's", run: restartGame }
           : null
-    const live = weaponChanged
-      ? reentered
-        ? 'Crosshair & sounds are live.'
-        : 'Crosshair & sounds are live - re-enter your scenario.'
-      : ''
+    const live = weaponChanged ? (reentered ? 'Crosshair and sounds are live.' : 'Applied. Re-enter to load it.') : ''
     const lead = `${failed}${live}${restartNote}`.trim()
     if (theme === 'live') {
-      toast(`${lead} <b>Theme: open KovaaK's settings once and it applies.</b>`.trim(), failed ? 'warn' : 'ok', 6500, reenter)
+      toast(`${lead} Open KovaaK's settings once for the theme.`.trim(), failed ? 'warn' : 'ok', 6500, reenter)
     } else if (theme === 'arming') {
       toast(
-        `${lead} Theme is staged - <b>select the "!KovaPreset" theme (top of KovaaK's theme list) once</b>; after that, theme changes apply when you open settings.`.trim(),
+        `${lead} Pick the <b>!KovaPreset</b> theme once in KovaaK's.`.trim(),
         'warn',
         8000,
         reenter
       )
     } else if (theme === 'applied') {
-      toast(`Applied. ${lead || "Theme is set for your next KovaaK's launch."}`.trim(), 'ok', 3600, reenter)
+      toast(lead || 'Applied. Live on your next launch.', 'ok', 3600, reenter)
     } else if (lead) {
-      toast(lead, failed ? 'warn' : 'ok', 5000, reenter)
+      toast(lead, failed || pending ? 'warn' : 'ok', 5000, reenter)
     } else {
-      toast('Already active - nothing to change.', 'ok')
+      toast('Already active.')
     }
   } catch (err) {
     toast(esc(String(err.message || err)), 'err')
@@ -1145,19 +1200,19 @@ async function refresh(rescan) {
   }
   maybeOfferUpdate()
   const pill = $('#game-pill')
+  $('#app-version').textContent = current.appVersion || ''
+  $('#install-path').textContent = current.install ? `Found through Steam: ${current.install}` : 'Not found through Steam.'
+  // Kovi wakes up with the game (CSS swaps the two marks on this)
+  document.body.dataset.game = current.gameRunning ? 'on' : 'off'
+  setView(view)
   if (!current.install) {
-    $('#not-found').classList.remove('hidden')
-    $('#content').classList.add('hidden')
-    pill.textContent = "KovaaK's: not found"
-    pill.className = 'pill pill-off'
+    pill.textContent = "KovaaK's not found"
+    pill.className = 'status status-off'
     lastRenderSig = ''
     return
   }
-  $('#not-found').classList.add('hidden')
-  $('#content').classList.remove('hidden')
-  pill.textContent = current.gameRunning ? "KovaaK's: running" : "KovaaK's: closed"
-  pill.className = 'pill ' + (current.gameRunning ? 'pill-on' : 'pill-off')
-  $('#launch').classList.toggle('hidden', current.gameRunning)
+  pill.textContent = current.gameRunning ? "KovaaK's running" : "KovaaK's closed"
+  pill.className = 'status ' + (current.gameRunning ? 'status-on' : 'status-off')
   $('#deactivate').classList.toggle('hidden', !current.canRestore)
   // Skip the expensive re-render (all rows rebuilt, crosshair canvases redrawn)
   // when nothing it draws from actually changed - most 5s ticks. Also keeps a
@@ -1174,11 +1229,50 @@ async function refresh(rescan) {
   renderPresets(current.presets, current.active)
 }
 
+// ---- sidebar views --------------------------------------------------------------
+// Presets / HUD layout / Settings. setView only paints; showView is the click path
+// and owns leaving the HUD editor, which can hold unsaved edits.
+let view = 'presets'
+function setView(v) {
+  view = v
+  for (const b of document.querySelectorAll('.nav-item')) {
+    b.classList.toggle('on', b.dataset.view === v)
+    if (b.dataset.view === v) b.setAttribute('aria-current', 'page')
+    else b.removeAttribute('aria-current')
+  }
+  const noInstall = current && !current.install
+  $('#settings-view').classList.toggle('hidden', v !== 'settings')
+  $('#progress-view').classList.toggle('hidden', v !== 'progress')
+  $('#sessions-view').classList.toggle('hidden', v !== 'sessions')
+  $('#clips-view').classList.toggle('hidden', v !== 'clips')
+  $('#tournaments-view').classList.toggle('hidden', v !== 'tournaments')
+  $('#challenge-view').classList.toggle('hidden', v !== 'challenge')
+  $('#content').classList.toggle('hidden', v !== 'presets' || !current?.install)
+  // both game-file tools need an install; Settings and Rank progress (kova's
+  // data) stay reachable without one
+  $('#not-found').classList.toggle('hidden', v === 'settings' || v === 'progress' || v === 'sessions' || v === 'clips' || v === 'tournaments' || v === 'challenge' || !noInstall)
+}
+async function showView(v) {
+  if (v === view) return
+  if (view === 'hud' && !(await hudLeave())) return
+  setView(v)
+  if (v === 'hud') hudOpen()
+  else if (v === 'presets') refresh()
+  else if (v === 'progress') renderProgress()
+  else if (v === 'sessions') renderSessions()
+  else if (v === 'clips') renderClips()
+  else if (v === 'tournaments') renderTournaments()
+  else if (v === 'challenge') renderChallenge()
+}
+for (const b of document.querySelectorAll('.nav-item'))
+  b.addEventListener('click', () => showView(b.dataset.view))
+setView(view)
+
 $('#capture').addEventListener('click', async () => {
   const name = `Preset ${(current?.presets?.length || 0) + 1}`
   current.presets = await window.kova.capture(name)
   renderPresets(current.presets, current.active)
-  toast('Captured your current setup. Click a name to rename it.', 'ok')
+  toast('Setup saved as a preset.')
 })
 
 // ---- preset builder -----------------------------------------------------------
@@ -1406,10 +1500,10 @@ $('#b-create').addEventListener('click', async () => {
   if (editingPresetId) {
     current.presets = await window.kova.updatePreset(editingPresetId, picks)
     editingPresetId = null
-    toast('Preset updated.', 'ok')
+    toast('Preset updated.')
   } else {
     current.presets = await window.kova.build(picks)
-    toast('Preset created.', 'ok')
+    toast('Preset created.')
   }
   renderPresets(current.presets, current.active)
   builder.classList.add('hidden')
@@ -1423,24 +1517,20 @@ $('#refresh').addEventListener('click', async (e) => {
   await refresh(true)
   setTimeout(() => btn.classList.remove('spinning'), 600)
   toast(
-    current?.install ? 'Re-scanned - install &amp; game state are up to date.' : "Re-scanned - still can't find KovaaK's.",
-    current?.install ? 'ok' : 'warn'
+    current?.install ? 'Re-scanned.' : "Still can't find KovaaK's.",
+    current?.install ? '' : 'warn'
   )
 })
 $('#health').addEventListener('click', showHealth)
 $('#help').addEventListener('click', showHelp)
 $('#win-min').addEventListener('click', () => window.kova.winMinimize())
 $('#win-close').addEventListener('click', () => window.kova.winClose())
-$('#launch').addEventListener('click', async () => {
-  await window.kova.launchGame()
-  toast("Launching KovaaK's via Steam…", 'ok')
-})
 $('#import').addEventListener('click', async () => {
   const res = await window.kova.importPresets()
   if (res.ok) {
     current.presets = res.presets
     renderPresets(current.presets, current.active)
-    toast(`Imported ${res.count} preset${res.count === 1 ? '' : 's'}.`, 'ok')
+    toast(`Imported ${res.count} preset${res.count === 1 ? '' : 's'}.`)
   } else if (!res.canceled) {
     toast(esc(res.error || 'Import failed.'), 'err')
   }
@@ -1455,31 +1545,21 @@ async function loadSettingsUi() {
   for (const el of document.querySelectorAll('input[name="apply-mode"]'))
     el.checked = el.value === mode
   setApplyModeSummary(mode)
-  // each option carries its own description now - this only adds the one thing
-  // they share, so it stays a single line
-  $('#restart-key-note').textContent =
-    'Both go through Steam, the same way play links on the web do.'
 }
-const APPLY_MODE_LABEL = {
-  manual: 'Do nothing',
-  reenter: 'Re-enter my scenario',
-  restart: "Restart KovaaK's",
+// One line under the segmented control: what the chosen mode leaves for you to do.
+const APPLY_MODE_HELP = {
+  manual: 'Only writes the files. Re-enter your scenario yourself, sens and DPI on next launch.',
+  reenter: 'Crosshair and sounds go live now. Sens and DPI wait for the next launch.',
+  restart: 'Everything applies, sens and DPI included. Takes about 40 seconds.',
 }
-// keeps the collapsed fold meaningful - it shows the current choice
 const setApplyModeSummary = (mode) => {
-  $('#apply-mode-summary').textContent = APPLY_MODE_LABEL[mode] || ''
-}
-const APPLY_MODE_TOAST = {
-  manual: 'Applies will just write the files - re-enter your scenario when you want them live.',
-  reenter: 'Applies will re-enter your scenario automatically.',
-  restart: "Applies will restart KovaaK's when needed, so sens and DPI land too.",
+  $('#apply-mode-summary').textContent = APPLY_MODE_HELP[mode] || ''
 }
 for (const el of document.querySelectorAll('input[name="apply-mode"]'))
   el.addEventListener('change', async (e) => {
     if (!e.target.checked) return
     await window.kova.setSettings({ applyMode: e.target.value })
     setApplyModeSummary(e.target.value)
-    toast(APPLY_MODE_TOAST[e.target.value], 'ok')
   })
 $('#deactivate').addEventListener('click', async () => {
   const res = await window.kova.deactivate()
@@ -1487,9 +1567,9 @@ $('#deactivate').addEventListener('click', async () => {
   if (!res.ok) return toast(esc(res.error || 'Nothing to restore.'), 'warn')
   toast(
     res.queued
-      ? "Original setup restored. Theme/layout finish restoring when you quit KovaaK's; crosshair & sounds are already back."
-      : 'Original setup restored - everything is as it was before KovaPresets.',
-    'ok'
+      ? "Restored. Theme and HUD finish when you quit KovaaK's."
+      : 'Original setup restored.',
+    ''
   )
 })
 $('#b-sound-play').addEventListener('click', () => playSound($('#b-sound').value.trim() || bodyHit(current?.active)))
@@ -1499,23 +1579,23 @@ $('#b-killsound-play').addEventListener('click', () =>
 window.kova.onChanged(() => refresh()) // queued changes landed after the game quit
 window.kova.onHotkeyApplied(({ name, theme, weaponChanged, followUp, launchOnly }) => {
   refresh()
-  const bits = []
-  if (followUp?.mode === 'restart' && followUp.ok)
-    bits.push("restarting KovaaK's, everything applies")
-  else if (followUp?.mode === 'restart' && followUp.error) bits.push(esc(followUp.error))
-  else if (followUp?.mode === 'reenter' && followUp.ok) bits.push('scenario re-entered, changes are live')
-  else if (weaponChanged) bits.push('crosshair/sounds live on scenario re-entry')
-  if (!(followUp?.mode === 'restart' && followUp.ok)) {
-    if (theme === 'live') bits.push('theme applies when you open settings')
-    else if (theme === 'arming') bits.push('select the !KovaPreset theme in the menu once')
-    // hotkey applies happen mid-session, so this is exactly where a silently
-    // unapplied sens would bite - name the value so it can be typed in-game
-    if (launchOnly?.length)
-      bits.push(
-        `<b>${esc(launchOnly.map((f) => `${f.field} ${round2(f.value)}`).join(' & '))}</b> needs a restart or a manual change in-game`
-      )
-  }
-  toast(`Hotkey applied <b>${esc(name)}</b>${bits.length ? ' - ' + bits.join(', ') : ''}.`, 'ok', 6000)
+  // One line: the one thing still to do, most pressing first. Hotkey applies
+  // happen mid-session, so a sens that silently waits for a restart is named.
+  const restarting = followUp?.mode === 'restart' && followUp.ok
+  const pending = launchOnly?.length ? launchOnly.map((f) => `${f.field} ${round2(f.value)}`).join(' & ') : ''
+  const note = restarting
+    ? "Restarting KovaaK's."
+    : followUp?.mode === 'restart' && followUp.error
+      ? esc(followUp.error)
+      : pending
+        ? `<b>${esc(pending)}</b> applies after a restart.`
+        : theme === 'arming'
+          ? 'Pick the <b>!KovaPreset</b> theme once.'
+          : weaponChanged && !(followUp?.mode === 'reenter' && followUp.ok)
+            ? 'Re-enter to load it.'
+            : ''
+  const needsYou = pending || theme === 'arming' || (followUp?.mode === 'restart' && followUp.error)
+  toast(`Applied <b>${esc(name)}</b>.${note ? ` ${note}` : ''}`, !restarting && needsYou ? 'warn' : '')
 })
 // Boot: settle settings (incl. onboarded) and populate the UI before anything
 // modal shows. The 5s poll is started right after the first paint - BEFORE the
@@ -1523,6 +1603,12 @@ window.kova.onHotkeyApplied(({ name, theme, weaponChanged, followUp, launchOnly 
 // app un-polled. Then show the first-run wizard for a new user, and finally let
 // the health check surface any problem the wizard didn't already put in front of
 // them (auto-open is suppressed while the wizard is still up).
+$('#empty').innerHTML = emptyState('idle', 'No presets yet', "Set KovaaK's up how you like, then save it here.", '<button class="primary empty-capture">Save current setup</button>')
+$('#empty').addEventListener('click', (e) => e.target.closest('.empty-capture') && $('#capture').click())
+$('#nf-empty').innerHTML = emptyState('uhoh', '', '', '<button class="nf-rescan">Re-scan</button>')
+$('#nf-empty').addEventListener('click', (e) => e.target.closest('.nf-rescan') && $('#refresh').click())
+$('#closed-note').innerHTML = `${KOVI.asleep}<span>KovaaK's is closed. Presets apply right away.</span>`
+
 async function boot() {
   try {
     await loadSettingsUi()

@@ -102,6 +102,16 @@ if (existing.ok) {
   }
 }
 
+// ---- the bundled ffmpeg ------------------------------------------------------
+// Before anything is built: electron-builder bundles vendor/ffmpeg/, and a
+// release without it would ship an autoclipper that can't trim.
+step('Fetching the bundled ffmpeg')
+try {
+  info(require('./fetch-ffmpeg').fetchFfmpeg({ check: dryRun }))
+} catch (e) {
+  die(e.message)
+}
+
 // ---- build + upload ----------------------------------------------------------
 step('Building and uploading')
 if (dryRun) {
