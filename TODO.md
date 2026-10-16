@@ -180,3 +180,6 @@ Works from local files:
 ## Loose ends
 
 - [ ] List kova companion on kova's `/projects` directory.
+- [ ] Two mid-session applies, the second with the same theme: its queue replaces the first's and
+      drops `proxyName`, so the overlay and (after quit) the in-game menu fall back to the launch-time
+      theme name. Colours are right. Fix: carry `proxyName` forward when an apply doesn't change the theme.

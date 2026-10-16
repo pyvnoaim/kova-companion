@@ -410,6 +410,8 @@ console.log('UI.json validation: ok')
     hitSound: 'Porphyr2',
     soundCooldown: 0.03, // the global block, not the [Rifle] override
   })
+  // mid-session apply: the file keeps its launch name, the queued name is what's on screen
+  assert.equal(c.setupPayload(root, '!KovaPreset - Dusk').theme, 'Dusk')
   assert.equal(c.scanKey({ 'EFloatSettingId::FOVOther': 1 }, /^FOV$/i), null, 'anchored, not substring')
   assert.equal(c.scanWeaponIni(path2.join(root, 'missing'), /cooldown/i), null, 'no install, no throw')
   fs2.rmSync(root, { recursive: true, force: true })

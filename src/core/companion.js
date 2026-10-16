@@ -52,7 +52,10 @@ function scanWeaponIni(install, re) {
 
 const num = (v) => (blank(v) || !Number.isFinite(Number(v)) ? null : Number(v))
 
-function setupPayload(install) {
+// `queuedProxyName`: the proxy name a mid-session apply queued for the quit flush.
+// The file keeps its launch-time name until then (it's the game's selection key),
+// so without this the overlay shows the theme from before the apply.
+function setupPayload(install, queuedProxyName) {
   const weapon = k.readWeapon(install)
   const primary = k.readPrimary(install)
   const raw = k.readPrimaryObject(install) || {}
@@ -60,7 +63,7 @@ function setupPayload(install) {
   // While the proxy theme is selected the game renders the PROXY FILE, and
   // PrimaryUserSettings' theme name goes stale the moment a preset applies live.
   const theme = themeLabel(
-    k.proxyThemeSelected(install) ? k.readProxyName(install) : s.CurrentThemeName
+    k.proxyThemeSelected(install) ? queuedProxyName || k.readProxyName(install) : s.CurrentThemeName
   )
   return {
     dpi: num(primary.integerSettings?.DPI),

@@ -1141,7 +1141,7 @@ async function postKovaSetup() {
   if (!install || !kovaToken || !kovaSyncOn()) return
   let body
   try {
-    body = JSON.stringify(companion.setupPayload(install))
+    body = JSON.stringify(companion.setupPayload(install, readPending()?.primary?.proxyName))
   } catch {
     return // a half-written settings file - the next watch event brings the good one
   }
