@@ -1058,11 +1058,21 @@ function recordHotkey(preset, chip) {
       toast('Use Ctrl, Alt, Shift or an F-key.', 'warn')
       return
     }
+    // global: the combo stops reaching every other app while kova companion runs
+    if (mods.join('+') === 'Shift' && !/^F\d+$/.test(main)) {
+      toast('Shift + a letter or number would stop you typing it anywhere. Add Ctrl or Alt.', 'warn')
+      return
+    }
+    if (mods.join('+') === 'Ctrl' && /^[ACSVXYZ]$/.test(main)) {
+      toast(`Ctrl+${main} is copy / paste / undo territory. Pick another combo.`, 'warn')
+      return
+    }
     const accel = [...mods, main].join('+')
     current.presets = await window.kova.setHotkey(preset.id, accel)
     cleanup()
     renderPresets(current.presets, current.active)
-    toast(`Hotkey <b>${esc(accel)}</b> set.`)
+    if (current.presets.find((p) => p.id === preset.id)?.hotkey === accel) toast(`Hotkey <b>${esc(accel)}</b> set.`)
+    else toast(`<b>${esc(accel)}</b> is already taken by another app. Pick another combo.`, 'warn')
   }
   const cleanup = () => {
     window.removeEventListener('keydown', onKey, true)
@@ -1169,7 +1179,8 @@ async function applyPreset(preset) {
         8000,
         reenter
       )
-    } else if (theme === 'applied') {
+    } else if (theme === 'applied' || (!running && launchOnly?.length)) {
+      // closed game: a theme, or a sens/DPI change with no theme in it
       toast(lead || 'Applied. Live on your next launch.', 'ok', 3600, reenter)
     } else if (lead) {
       toast(lead, failed || pending ? 'warn' : 'ok', 5000, reenter)

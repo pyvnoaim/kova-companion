@@ -274,9 +274,16 @@ body[data-game='on'] .kovi-asleep {
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   padding: 12px;
   border-right: 1px solid var(--border);
+  /* a short window scrolls the sidebar instead of squashing what's in it */
+  overflow-y: auto;
+}
+/* Settings is a direct child, so as the only shrinkable item it took the whole
+   shortfall (24px tall next to 32px items) */
+.sidebar > :not(.nav-spacer) {
+  flex: none;
 }
 .nav-group {
   display: flex;
@@ -461,9 +468,10 @@ button.primary:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* same size as the name values beside them - mono for the digits, not a bigger
+   number; mono runs wide, so a step down keeps it optically even */
 .stat .value.num {
-  font-size: 22px;
-  line-height: 28px;
+  font-size: 14px;
 }
 .stat .unit {
   font: 400 13px/20px 'Geist', sans-serif;
@@ -1025,6 +1033,10 @@ button.play:hover {
   font-size: 12px;
   color: var(--fg);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  padding: 0 2px;
   pointer-events: none;
 }
 .hud-box.selected {
@@ -1364,6 +1376,26 @@ button.play:hover {
   color: #fff;
   font-weight: 600;
 }
+/* the in-app clip player */
+.modal-video {
+  width: min(960px, calc(100vw - 48px));
+  padding: 16px;
+}
+.mv-head {
+  margin: 0 4px 12px;
+}
+.mv-video {
+  display: block;
+  width: 100%;
+  max-height: calc(100vh - 220px);
+  border-radius: 8px;
+  background: #000;
+}
+.mv-err {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--fg-muted);
+}
 .modal-help {
   width: min(560px, calc(100vw - 48px));
   max-height: 82vh;
@@ -1602,6 +1634,28 @@ button.play:hover {
 }
 .rows .setting-row + .setting-row {
   border-top: 1px solid var(--border);
+}
+/* autoclipper: a working setup folds to its summary row */
+.cl-summary {
+  cursor: pointer;
+}
+.cl-summary:hover {
+  background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
+}
+.cl-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.cl-chevron {
+  display: flex;
+  color: var(--fg-muted);
+  transition: transform 0.15s;
+}
+.cl-summary[aria-expanded='true'] .cl-chevron {
+  transform: rotate(180deg);
+}
+.cl-collapsed .cl-detail {
+  display: none;
 }
 .setting-row > button {
   height: 32px;
@@ -2170,6 +2224,36 @@ button.solid:hover {
   flex-direction: column;
   gap: 10px;
 }
+/* loading placeholders: the shape of what's coming, softly pulsing */
+.skel {
+  border-radius: 8px;
+  background: var(--surface-raised);
+  animation: skel-pulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes skel-pulse {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 0.9;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel {
+    animation: none;
+  }
+}
+.skel-stats {
+  width: 55%;
+  height: 32px;
+}
+.skel-cal {
+  height: 112px;
+}
+.skel-row {
+  height: 56px;
+  margin-top: 8px;
+}
 .ss-cal-top {
   display: flex;
   align-items: center;
@@ -2255,16 +2339,18 @@ button.ss-cell:disabled {
   opacity: 1;
   pointer-events: none;
 }
-.ss-l0 {
+/* .ss-cell.ss-lN, not .ss-lN: the global button:hover background outranks a
+   single class, and hovering a played day turned it grey */
+.ss-cell.ss-l0 {
   background: var(--surface-raised);
 }
-.ss-l1 {
+.ss-cell.ss-l1 {
   background: color-mix(in srgb, var(--accent) 30%, var(--surface-raised));
 }
-.ss-l2 {
+.ss-cell.ss-l2 {
   background: color-mix(in srgb, var(--accent) 60%, var(--surface-raised));
 }
-.ss-l3 {
+.ss-cell.ss-l3 {
   background: var(--accent);
 }
 .ss-today {
@@ -2339,6 +2425,9 @@ button.ss-cell:disabled {
 .ss-n .num {
   color: var(--fg);
 }
+.ss-n .num.ok-text {
+  color: var(--success);
+}
 .ss-time {
   text-align: right;
   font-size: 13px;
@@ -2372,11 +2461,19 @@ button.ss-cell:disabled {
   font-size: 26px;
   line-height: 32px;
 }
-.ss-pb-row {
-  grid-template-columns: minmax(0, 1fr) 72px 60px 110px;
+/* New PBs and Played share one grid so their columns line up */
+.ss-list-row {
+  grid-template-columns: minmax(0, 1fr) 72px 96px 112px;
 }
-.ss-played-row {
-  grid-template-columns: minmax(0, 1fr) 64px 96px 72px;
+.ss-list-row .pg-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ss-n .pg-dot {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: 1px;
 }
 #sessions-view .ss-cal + .block {
   margin-top: 40px;
@@ -2413,17 +2510,115 @@ button.ss-cell:disabled {
 .cl-recent {
   margin-top: 40px;
 }
-.cl-row {
-  grid-template-columns: minmax(0, 1fr) 72px 110px 60px;
+/* recent clips: a thumbnail grid */
+.cl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
 }
-.cl-why {
-  font-size: 13px;
-  text-align: right;
+.cl-card {
+  min-width: 0;
+  cursor: pointer;
+  border-radius: var(--radius-surface);
+  outline: none;
+}
+.cl-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s;
+}
+.cl-card:hover .cl-thumb,
+.cl-card:focus-visible .cl-thumb {
+  border-color: var(--accent);
+}
+.cl-thumb video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cl-thumb-err::after {
+  content: 'No preview';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.cl-play-badge {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  transition: opacity 0.15s;
+}
+.cl-card:hover .cl-play-badge {
+  opacity: 0; /* the hover preview is playing - get out of its way */
+}
+.cl-why-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+}
+.cl-why-badge.cl-why-hl {
+  color: var(--success);
+}
+.cl-thumb .cl-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.cl-card:hover .cl-del,
+.cl-card:focus-within .cl-del {
+  opacity: 1;
+}
+.cl-thumb .cl-del:hover {
+  background: var(--danger);
+}
+.cl-meta {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 2px 0;
+  min-width: 0;
+}
+.cl-title {
+  font-size: 14px;
+  font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.cl-row .cl-play {
-  height: 32px;
-  padding: 0;
+.cl-sub {
+  font-size: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Delete sits apart on the left, away from Close */
+.modal-video .mv-del {
+  margin-right: auto;
 }
 /* the clip-saved toast carries Kovi */
 .cl-toast {

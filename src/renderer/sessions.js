@@ -10,6 +10,9 @@
 // is fetched from kova.
 const sess = { year: null, month: null, day: null }
 let historyData = null
+// set when a run finishes: the cached history misses it (a session that's
+// still going used to show yesterday's counts until KovaaK's closed)
+let historyStale = false
 const RECENT_DAYS = 8
 
 const short2 = (n) => shortScenario(n)
@@ -28,8 +31,8 @@ function dayRowsHtml(days) {
       ].join(' · ')
       return `<button class="ss-day" data-day="${esc(d.key)}">
         <span class="pg-name"><span class="pg-title">${esc(dayLabel(d.key))}</span><span class="pg-odds">${esc(what)}</span></span>
-        <span class="ss-n"><span class="num">${d.runs}</span> runs</span>
-        <span class="ss-n"><span class="num${d.pbCount ? ' ok-text' : ''}">${d.pbCount}</span> PB${d.pbCount === 1 ? '' : 's'}</span>
+        <span class="ss-n"><span class="num">${d.runs}</span> run${d.runs === 1 ? '' : 's'}</span>
+        <span class="ss-n"><span class="num${d.pbs.length ? ' ok-text' : ''}">${d.pbs.length}</span> PB${d.pbs.length === 1 ? '' : 's'}</span>
         <span class="num ss-time">${esc(fmtDur(d.playMs))}</span>
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
       </button>`
@@ -60,7 +63,7 @@ function calendarHtml(year, perDay) {
     const runs = perDay[key] || 0
     const lvl = runs ? Math.min(3, Math.ceil((runs / max) * 3)) : 0
     const dim = sess.month != null && d.getMonth() !== sess.month ? ' ss-dim' : ''
-    const label = `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}: ${runs ? `${runs} runs` : 'no runs'}`
+    const label = `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}: ${runs ? `${runs} run${runs === 1 ? '' : 's'}` : 'no runs'}`
     cells.push(
       key > todayKey
         ? '<span class="ss-cell ss-future"></span>'
@@ -80,7 +83,9 @@ function calendarHtml(year, perDay) {
 function recapHtml(d) {
   const statsRow = [
     [d.runs, 'runs', ''],
-    [d.pbCount, `new PB${d.pbCount === 1 ? '' : 's'}`, d.pbCount ? 'ok-text' : ''],
+    // scenarios with a new best - what the New PBs list shows and the
+    // end-of-session toast counts; two PBs on one scenario are one line
+    [d.pbs.length, `new PB${d.pbs.length === 1 ? '' : 's'}`, d.pbs.length ? 'ok-text' : ''],
     [d.rankUps.length, `rank-up${d.rankUps.length === 1 ? '' : 's'}`, ''],
     [fmtDur(d.playMs), 'in runs', ''],
   ]
@@ -89,20 +94,22 @@ function recapHtml(d) {
   const pbs = d.pbs.length
     ? `<section class="block"><div class="section-head"><h2>New PBs</h2></div><div class="pg-list">${d.pbs
         .map(
-          (p) => `<div class="pg-row ss-pb-row">
+          // same columns as Played below: gain where runs are, the new best
+          // under best, and the rank it reached (or where it came from) last
+          (p) => `<div class="pg-row ss-list-row">
             <span class="pg-title">${esc(p.scenario)}</span>
-            <span class="num pg-best">${fmt(p.score)}</span>
-            <span class="num ok-text pg-best">+${fmt(p.gain)}</span>
-            <span class="pg-rank">${p.rankUp ? `<span class="pg-dot" style="background:${esc(p.rankUp.color || '#ff9a9a')}"></span>${esc(p.rankUp.rank)}, new` : ''}</span>
+            <span class="ss-n"><span class="num ok-text">+${fmt(p.gain)}</span></span>
+            <span class="ss-n">best <span class="num">${fmt(p.score)}</span></span>
+            <span class="ss-n">${p.rankUp ? `<span class="pg-dot" style="background:${esc(p.rankUp.color || '#ff9a9a')}"></span><span class="num">${esc(p.rankUp.rank)}</span>` : `from <span class="num">${fmt(p.score - p.gain)}</span>`}</span>
           </div>`
         )
         .join('')}</div></section>`
     : ''
   const played = `<section class="block"><div class="section-head"><h2>Played</h2></div><div class="pg-list">${d.played
     .map(
-      (p) => `<div class="pg-row ss-played-row">
+      (p) => `<div class="pg-row ss-list-row">
         <span class="pg-title">${esc(p.scenario)}</span>
-        <span class="ss-n"><span class="num">${p.runs}</span> runs</span>
+        <span class="ss-n"><span class="num">${p.runs}</span> run${p.runs === 1 ? '' : 's'}</span>
         <span class="ss-n">best <span class="num">${fmt(p.best)}</span></span>
         <span class="ss-n">${p.acc != null ? `<span class="num">${Math.round(p.acc * 100)}%</span> acc` : ''}</span>
       </div>`
@@ -114,13 +121,30 @@ function recapHtml(d) {
         <p class="lead">${d.sessions} session${d.sessions === 1 ? '' : 's'}, ${esc(clock(d.first))} to ${esc(clock(d.last))}</p></div>
       <div class="page-actions"><button class="ss-back">Back to sessions</button></div>
     </div>
-    <section class="ss-strip">${d.pbCount ? KOVI_HAPPY : KOVI_IDLE}<div class="ss-stats">${statsRow}</div></section>
+    <section class="ss-strip">${d.pbs.length ? KOVI_HAPPY : KOVI_IDLE}<div class="ss-stats">${statsRow}</div></section>
     ${pbs}${played}`
 }
 
+// The first open reads every stats file (~0.5s on 2,600 runs): show the page's
+// shape instead of an empty view. Later reloads keep the old page up meanwhile.
+const SESSIONS_LOADING = `
+  <div class="page-head"><div class="page-title"><h1>Sessions</h1>
+    <p class="lead">Every day you played on this PC. Totals are for the year shown.</p></div></div>
+  <section class="ss-cal ss-loading" aria-busy="true" aria-label="Reading your stats">
+    <div class="skel skel-stats"></div>
+    <div class="skel skel-cal"></div>
+  </section>
+  <section class="block"><div class="section-head"><h2>Recent days</h2></div>
+    <div class="skel skel-row"></div><div class="skel skel-row"></div><div class="skel skel-row"></div>
+  </section>`
+
 async function renderSessions({ reload = false } = {}) {
   const el = $('#sessions-view')
-  if (!historyData || reload) historyData = await window.kova.historyGet()
+  if (!historyData) el.innerHTML = SESSIONS_LOADING
+  if (!historyData || reload || historyStale) {
+    historyStale = false
+    historyData = await window.kova.historyGet()
+  }
   const h = historyData
   if (!h.ok || !h.days.length) {
     el.innerHTML = `<div class="page-head"><div class="page-title"><h1>Sessions</h1>
@@ -139,6 +163,7 @@ async function renderSessions({ reload = false } = {}) {
   const years = h.years.map((y) => y.year)
   if (sess.year == null || !years.includes(sess.year)) sess.year = years[years.length - 1]
   const yi = years.indexOf(sess.year)
+  sess.years = years // prev/next step through years with data, gaps included
   const y = h.years[yi]
   const listDays =
     sess.month != null
@@ -181,16 +206,20 @@ $('#sessions-view').addEventListener('click', (e) => {
   } else if (b.classList.contains('ss-recent')) sess.month = null
   else if (b.classList.contains('ss-back')) sess.day = null
   else if (b.classList.contains('ss-prev')) {
-    sess.year -= 1
+    sess.year = sess.years[sess.years.indexOf(sess.year) - 1] ?? sess.year
     sess.month = null
   } else if (b.classList.contains('ss-next')) {
-    sess.year += 1
+    sess.year = sess.years[sess.years.indexOf(sess.year) + 1] ?? sess.year
     sess.month = null
   } else return
   renderSessions()
 })
 // KovaaK's closed: the history moved, and the recap is one click away (the page
 // doesn't take over the window by itself).
+window.kova.onProgressChanged(() => {
+  historyStale = true
+  if (view === 'sessions') renderSessions()
+})
 window.kova.onSessionEnded((info) => {
   historyData = null
   if (view === 'sessions') renderSessions()

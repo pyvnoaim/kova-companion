@@ -45,7 +45,7 @@ async function renderTournaments() {
         return `<section class="tn-live">
           ${KOVI_LOCKED}
           <div class="tn-live-text">
-            <span class="tn-live-top">${isLive ? '<span class="status status-on">Live now</span>' : '<span class="status status-off">Up next</span>'}<span class="setting-desc">${esc(live.name)}${m.bestOf ? ` · Bo${m.bestOf}` : ''}</span></span>
+            <span class="tn-live-top">${isLive ? '<span class="status status-on">Live now</span>' : '<span class="status status-off">Up next</span>'}<span class="setting-desc">${esc(live.name)}${m.bestOf ? ` · Bo${Number(m.bestOf)}` : ''}</span></span>
             <span class="tn-vs"><span class="tn-vs-name">You vs ${esc(m.opponent || 'TBD')}</span><span class="num tn-score">${Number(m.myScore)}–${Number(m.oppScore)}</span></span>
             <span class="setting-desc">${m.game ? `Game ${Number(m.game.number)}: <span class="tn-scen">${esc(m.game.scenario)}</span>` : 'Waiting for pick and ban'}</span>
           </div>

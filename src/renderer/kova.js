@@ -112,12 +112,17 @@ for (const slot of ['#kova-card', '#kova-rows', '#alert-rows'])
     renderKova()
   })
 let kovaWasSignedIn = null
-window.kova.onKovaChanged(async () => {
-  const before = kovaWasSignedIn
-  await renderKova()
-  const now = (await window.kova.kovaGet()).signedIn
-  if (before === false && now) toast('Connected to kova.')
-  kovaWasSignedIn = now
+// Serialized: sign-in fires kova-changed twice back to back, and two handlers
+// reading `before` at once both saw "signed out" and toasted twice.
+let kovaChangedQueue = Promise.resolve()
+window.kova.onKovaChanged(() => {
+  kovaChangedQueue = kovaChangedQueue.then(async () => {
+    const before = kovaWasSignedIn
+    await renderKova()
+    const now = (await window.kova.kovaGet()).signedIn
+    if (before === false && now) toast('Connected to kova.')
+    kovaWasSignedIn = now
+  }).catch(() => {})
 })
 renderKova().then(async () => (kovaWasSignedIn = (await window.kova.kovaGet()).signedIn))
 

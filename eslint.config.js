@@ -34,6 +34,7 @@ module.exports = [
         toast: 'readonly',
         appConfirm: 'readonly',
         openModal: 'readonly',
+        fileUrl: 'readonly',
         refresh: 'readonly',
         current: 'writable',
         hud: 'readonly',

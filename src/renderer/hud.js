@@ -47,6 +47,7 @@ function hudCommit() {
   hud.history = hud.history.slice(0, hud.histIdx + 1)
   hud.history.push(snap)
   hud.histIdx++
+  hud.dirty = snap !== hud.history[0]
   hudHistoryUi()
 }
 function hudRestore(idx) {
@@ -90,11 +91,16 @@ function hudSizeOf(item) {
   return { w: base.w * s, h: base.h * s }
 }
 
+// Set when the game's UI.json couldn't be read: the editor would show nothing,
+// and saving that would overwrite the player's layout with an empty one.
+let hudParseFailed = false
 function hudParse(raw) {
   let obj
+  hudParseFailed = false
   try {
     obj = JSON.parse(String(raw || '').replace(/^﻿/, ''))
   } catch {
+    hudParseFailed = !!String(raw || '').trim()
     obj = {}
   }
   const scales = new Map((obj.windowScaleSettings || []).map((e) => [e.windowName, e.scale]))
@@ -138,6 +144,7 @@ function hudRender() {
     el.style.top = `${item.y * hud.factor}px`
     el.style.width = `${size.w * hud.factor}px`
     el.style.height = `${size.h * hud.factor}px`
+    el.title = item.name // the label clips on small windows
     el.innerHTML = `<span>${esc(item.name)}</span>${selected && hud.selection.size === 1 ? '<div class="hud-resize"></div>' : ''}`
     el.addEventListener('pointerdown', (e) => {
       if (e.target.classList.contains('hud-resize')) hudStartResize(item, el, e)
@@ -372,12 +379,18 @@ function hudStartDrag(item, el, e) {
     const lead = starts.find((s) => s.m === item)
     const want = clampItem(item, lead.x + dx, lead.y + dy)
     const snapped = hudSnap(item, want.x, want.y)
-    const adx = snapped.x - lead.x
-    const ady = snapped.y - lead.y
+    let adx = snapped.x - lead.x
+    let ady = snapped.y - lead.y
+    // clamp the shared delta, not each item: per-item clamping squashes a
+    // group against a screen edge while the lead keeps moving
     for (const s of starts) {
       const p = clampItem(s.m, s.x + adx, s.y + ady)
-      s.m.x = Math.round(p.x * 2) / 2
-      s.m.y = Math.round(p.y * 2) / 2
+      adx = p.x - s.x
+      ady = p.y - s.y
+    }
+    for (const s of starts) {
+      s.m.x = Math.round((s.x + adx) * 2) / 2
+      s.m.y = Math.round((s.y + ady) * 2) / 2
     }
     hud.dirty = true
     for (const s of starts) {
@@ -525,7 +538,16 @@ function hudOpen() {
   hud.dirty = false
   hud.history = [hudSnapshot()]
   hud.histIdx = 0
+  // A layout saved at a bigger resolution leaves windows past the edge, where
+  // they can't be seen or grabbed. Pull them in as one undoable step.
+  const off = hud.items.filter((i) => {
+    const c = clampItem(i, i.x, i.y)
+    return c.x !== i.x || c.y !== i.y
+  })
+  for (const i of off) Object.assign(i, clampItem(i, i.x, i.y))
+  if (off.length) hudCommit()
   hudHistoryUi()
+  $('#hud-save').disabled = hudParseFailed
   $('#content').classList.add('hidden')
   $('#hud-view').classList.remove('hidden')
   $('#hud-hint').textContent = `${hud.res.x}×${hud.res.y}`
@@ -537,6 +559,9 @@ function hudOpen() {
   canvas.style.width = `${width}px`
   canvas.style.height = `${hud.res.y * hud.factor}px`
   hudRender()
+  if (hudParseFailed) toast("Couldn't read your UI.json, so there's nothing to edit and Save is off.", 'err', 8000)
+  else if (off.length)
+    toast(`${off.length === 1 ? '1 window was' : `${off.length} windows were`} off-screen at ${hud.res.x}×${hud.res.y} - moved into view. Undo to put ${off.length === 1 ? 'it' : 'them'} back.`, 'warn', 8000)
 }
 
 function hudClose() {
@@ -559,9 +584,19 @@ $('#hud-reset').addEventListener('click', () => {
   flushNudgeCommit()
   hudRestore(0) // back to the saved layout (redoable)
 })
-$('#hud-save').addEventListener('click', async () => {
-  const { status } = await window.kova.hudSave(hudSerialize())
+$('#hud-save').addEventListener('click', async (e) => {
+  const btn = e.currentTarget
+  btn.disabled = true
+  let status
+  try {
+    ;({ status } = await window.kova.hudSave(hudSerialize()))
+  } catch {
+    status = 'error'
+  } finally {
+    btn.disabled = false
+  }
   if (status === 'invalid') return toast("Couldn't save that layout - nothing was written.", 'err')
+  if (status === 'error') return toast("Couldn't write UI.json - is KovaaK's still installed there?", 'err')
   hudClose()
   toast(
     status === 'queued'
@@ -607,6 +642,17 @@ document.querySelectorAll('#hud-align [data-align]').forEach((b) =>
 )
 window.addEventListener('keydown', (e) => {
   if ($('#hud-view').classList.contains('hidden')) return
+  // the scale slider and other inputs keep their own keys
+  if (e.target.closest?.('input, textarea, select')) return
+  if (e.key === 'Escape' && hud.selection.size) {
+    hud.selection = new Set()
+    return hudRender()
+  }
+  if (e.ctrlKey && e.key.toLowerCase() === 'a') {
+    e.preventDefault()
+    hud.selection = new Set(hud.items)
+    return hudRender()
+  }
   if (e.ctrlKey && e.key.toLowerCase() === 'z') {
     e.preventDefault()
     return e.shiftKey ? hudRedo() : hudUndo()
