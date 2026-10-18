@@ -70,15 +70,16 @@ function setupPayload(install, queuedProxyName) {
     sens: num(primary.floatSettings?.XSens),
     sensScale: s.SensScaleString || null,
     fov: num(scanKey(raw.floatSettings, /^FOV$/i)),
-    fovScale: scanKey(raw.stringSettings, /FOV/i) || null,
+    // pinned (seen in a real install 2026-10-18): /FOV/ alone matched
+    // FILMSCustomFOV ("hML") before FOVScaleString
+    fovScale: scanKey(raw.stringSettings, /^FOVScaleString$/i) || null,
     theme: theme || null,
     crosshair: weapon.CrosshairFile ? noExt(weapon.CrosshairFile) : null,
     crosshairScale: num(weapon.CrosshairScale),
     hitSound: blank(weapon.BodyHitSound) ? null : noExt(weapon.BodyHitSound),
-    // ponytail: key name unverified - no install to check against. Matches
-    // anything named *cooldown* in either file; null if neither has one. Pin the
-    // real key once it's been seen in a real install.
-    soundCooldown: num(scanKey(raw.floatSettings, /cooldown/i) ?? scanWeaponIni(install, /cooldown/i)),
+    // weaponsettings.ini has ShootSoundCooldown and HitSoundCooldown (seen in a
+    // real install 2026-10-18); this row sits next to the hit sound
+    soundCooldown: num(scanWeaponIni(install, /^HitSoundCooldown$/i)),
   }
 }
 

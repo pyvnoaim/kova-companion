@@ -26,7 +26,8 @@ function buildHistory(runs, thresholds = new Map()) {
     const pb = prev != null && run.score > prev
     let rankUp = null
     const th = thresholds.get(key)
-    if (th && run.score > (prev ?? -Infinity)) {
+    // same rule as PBs: a first-ever run has no rank to have gone up from
+    if (th && prev != null && run.score > prev) {
       const tier = (s) => (s == null ? -1 : th.reduce((i, t, n) => (s >= t.score ? n : i), -1))
       const after = tier(run.score)
       if (after > tier(prev)) rankUp = th[after]

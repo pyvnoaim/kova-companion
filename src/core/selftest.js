@@ -4,7 +4,44 @@ const assert = require('node:assert')
 const k = require('./kovaaks')
 
 // UI.json validation (hud:save boundary) - pure, runs anywhere (no install needed)
-assert.ok(k.validUi('{"windows":[]}'))
+assert.ok(k.validUi('{"windowPositionSettings":[{"windowName":"FPS","position":{"x":0,"y":1.5}}],"windowScaleSettings":[]}'))
+assert.ok(!k.validUi('[]'), 'not an object')
+
+// imported presets: managed keys only, typed, asset names that aren't paths
+assert.deepEqual(
+  k.sanitizePreset({
+    weapon: { CrosshairFile: '..\\..\\evil.png', BodyHitSound: '\\\\host\\share\\x', Junk: '1', CrosshairScale: '1.5' },
+    primary: {
+      floatSettings: { XSens: { nested: 1 }, YSens: 0.3 },
+      integerSettings: { DPI: -5 },
+      stringSettings: { KillConfirmedSound: 'Pop1', SpawnSound: 'a\nb' },
+      vectorSettings: { WallColor: { x: 0.5, y: 0.5, z: 0.5 }, FloorColor: { x: 'a' } },
+    },
+    proxyName: 'x',
+  }),
+  {
+    weapon: { CrosshairScale: '1.5' },
+    primary: {
+      floatSettings: { YSens: 0.3 },
+      stringSettings: { KillConfirmedSound: 'Pop1' },
+      vectorSettings: { WallColor: { x: 0.5, y: 0.5, z: 0.5 } },
+    },
+  }
+)
+assert.equal(k.sanitizePreset({ weapon: { Junk: 1 } }), null, 'nothing usable')
+// sens scales are free text with / and : in them - only file names get the path check
+assert.deepEqual(
+  k.sanitizePreset({
+    weapon: { SensScale: 'Quake/Source', OverrideSensScaleString: 'Rainbow 6: Siege', BodyHitSound: 'a/b' },
+    primary: { stringSettings: { SensScaleString: 'cm/360', KillConfirmedSound: 'C:\\x', CurrentThemeName: '3 AM' } },
+  }),
+  {
+    weapon: { SensScale: 'Quake/Source', OverrideSensScaleString: 'Rainbow 6: Siege' },
+    primary: { stringSettings: { SensScaleString: 'cm/360', CurrentThemeName: '3 AM' } },
+  }
+)
+assert.ok(!k.validUi('{"windowPositionSettings":[{"windowName":"FPS","position":{"x":null,"y":0}}]}'), 'no position')
+assert.ok(!k.validUi('{"windowScaleSettings":[{"windowName":"FPS","scale":0}]}'), 'zero scale')
 assert.ok(!k.validUi('not json'))
 assert.ok(!k.validUi('null'), 'null parses but carries nothing')
 assert.ok(!k.validUi('{'.repeat(600 * 1024)))
@@ -243,9 +280,18 @@ console.log('UI.json validation: ok')
   const root = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'kova-session-'))
   const sg = path2.join(root, 'Saved', 'SaveGames')
   fs2.mkdirSync(sg, { recursive: true })
-  assert.equal(k.currentScenario(root), null, 'no session.sav: null, no throw')
-  fs2.writeFileSync(path2.join(sg, 'session.sav'), sav(fstr('1wall6targets TE')))
-  assert.equal(k.currentScenario(root), '1wall6targets TE')
+  // currentScenario also reads LOCALAPPDATA's copy, which on a machine with the
+  // game installed is the real one. Point it inside the temp root instead.
+  const realLocal = process.env.LOCALAPPDATA
+  process.env.LOCALAPPDATA = path2.join(root, 'Local')
+  try {
+    assert.equal(k.currentScenario(root), null, 'no session.sav: null, no throw')
+    fs2.writeFileSync(path2.join(sg, 'session.sav'), sav(fstr('1wall6targets TE')))
+    assert.equal(k.currentScenario(root), '1wall6targets TE')
+  } finally {
+    if (realLocal === undefined) delete process.env.LOCALAPPDATA
+    else process.env.LOCALAPPDATA = realLocal
+  }
   fs2.rmSync(root, { recursive: true, force: true })
   console.log('session.sav scenario: ok')
 }
@@ -386,12 +432,12 @@ console.log('UI.json validation: ok')
   fs2.mkdirSync(path2.join(sg, 'Themes'), { recursive: true })
   fs2.writeFileSync(
     path2.join(sg, 'weaponsettings.ini'),
-    '﻿CrosshairFile=ZeeqPlus2.png\r\nCrosshairScale=1.0\r\nBodyHitSound=Porphyr2.ogg\r\nHitSoundCooldown=0.03\r\n[Rifle]\r\nHitSoundCooldown=9\r\n'
+    '﻿CrosshairFile=ZeeqPlus2.png\r\nCrosshairScale=1.0\r\nBodyHitSound=Porphyr2.ogg\r\nShootSoundCooldown=0.05\r\nHitSoundCooldown=0.03\r\n[Rifle]\r\nHitSoundCooldown=9\r\n'
   )
   fs2.writeFileSync(
     path2.join(sg, 'PrimaryUserSettings.json'),
     JSON.stringify({
-      stringSettings: { 'EStringSettingId::CurrentThemeName': '!KovaPreset - Old', 'EStringSettingId::SensScaleString': 'cm/360', 'EStringSettingId::FOVScale': 'Overwatch' },
+      stringSettings: { 'EStringSettingId::CurrentThemeName': '!KovaPreset - Old', 'EStringSettingId::SensScaleString': 'cm/360', 'EStringSettingId::FILMSCustomFOV': 'hML', 'EStringSettingId::FOVScaleString': 'Overwatch' },
       floatSettings: { 'EFloatSettingId::XSens': 37, 'EFloatSettingId::FOV': 103 },
       integerSettings: { 'EIntegerSettingId::DPI': 3200 },
     })
@@ -408,7 +454,7 @@ console.log('UI.json validation: ok')
     crosshair: 'ZeeqPlus2',
     crosshairScale: 1,
     hitSound: 'Porphyr2',
-    soundCooldown: 0.03, // the global block, not the [Rifle] override
+    soundCooldown: 0.03, // the hit sound's, from the global block - not shoot, not the [Rifle] override
   })
   // mid-session apply: the file keeps its launch name, the queued name is what's on screen
   assert.equal(c.setupPayload(root, '!KovaPreset - Dusk').theme, 'Dusk')

@@ -32,7 +32,11 @@ function runDurationMs(text, endTs) {
   const start = new Date(endTs)
   start.setHours(+m[1], +m[2], 0, 0)
   let startTs = start.getTime() + Number(m[3]) * 1000
-  if (startTs > endTs) startTs -= 24 * 3600 * 1000
+  if (startTs > endTs) {
+    // a calendar day back, not 24h: across a DST switch the day is 23 or 25h
+    start.setDate(start.getDate() - 1)
+    startTs = start.getTime() + Number(m[3]) * 1000
+  }
   const ms = endTs - startTs
   return ms > 0 && ms <= 2 * 3600 * 1000 ? ms : null
 }
@@ -48,8 +52,21 @@ function runFromText(meta, text) {
     score,
     hits: csvNum(text, 'Hit Count'),
     misses: csvNum(text, 'Miss Count'),
-    durationMs: runDurationMs(text, meta.ts),
+    durationMs: activeMs(runDurationMs(text, meta.ts), csvNum(text, 'Pause Duration')),
   }
+}
+
+// Wall time minus pauses (seconds in the CSV): a run paused for 7 minutes is
+// still a one-minute run.
+function activeMs(ms, pauseS) {
+  if (ms == null || !(pauseS > 0)) return ms
+  return Math.max(0, ms - pauseS * 1000)
+}
+
+// KovaaK's writes a stats file as UTF-16LE (with a BOM) when the scenario name
+// has characters outside ASCII (✦, CJK, ...); everything else is UTF-8.
+function decodeStats(buf) {
+  return buf[0] === 0xff && buf[1] === 0xfe ? buf.toString('utf16le', 2) : buf.toString('utf8')
 }
 
 function parseRun(dir, file) {
@@ -61,7 +78,7 @@ function parseRun(dir, file) {
   }
   let text
   try {
-    text = fs.readFileSync(path.join(dir, file), 'utf8')
+    text = decodeStats(fs.readFileSync(path.join(dir, file)))
   } catch {
     return null // locked mid-write: not cached, so the next read retries it
   }
@@ -91,7 +108,7 @@ async function allRuns(install) {
       const meta = k.statsFileScenario(f)
       if (!meta) runCache.set(f, (run = null))
       else {
-        const text = await fs.promises.readFile(path.join(dir, f), 'utf8').catch(() => null)
+        const text = await fs.promises.readFile(path.join(dir, f)).then(decodeStats, () => null)
         run = text == null ? null : runFromText(meta, text)
         if (text != null && run !== undefined) runCache.set(f, run)
       }
@@ -230,8 +247,9 @@ function scenarioChart(runs, thresholds, days, now = Date.now()) {
   const scores = inRange.map((r) => r.score)
   const tier = tierIndex(thresholds, Math.max(...scores, best))
   const near = thresholds.slice(Math.max(0, tier), tier + 2)
+  const bestIn = Number.isFinite(best) ? [best] : [] // an older best still draws its line
   let lo = Math.min(...scores, ...near.map((t) => t.score))
-  let hi = Math.max(...scores, ...near.map((t) => t.score))
+  let hi = Math.max(...scores, ...bestIn, ...near.map((t) => t.score))
   const pad = (hi - lo) * 0.08 || 1
   lo -= pad
   hi += pad

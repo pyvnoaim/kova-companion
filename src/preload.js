@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('kova', {
   clipPickFolder: () => ipcRenderer.invoke('clip:pickFolder'),
   clipOpenFolder: () => ipcRenderer.invoke('clip:openFolder'),
   clipPlay: (file) => ipcRenderer.invoke('clip:play', file),
+  clipDelete: (file) => ipcRenderer.invoke('clip:delete', file),
   onClipChanged: (cb) => ipcRenderer.on('clip-changed', () => cb()),
   onClipSaved: (cb) => ipcRenderer.on('clip-saved', (_e, clip) => cb(clip)),
   // Tournaments: the page, check-in (only on the player's click), Play, open on kova.

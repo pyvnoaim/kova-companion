@@ -9,7 +9,9 @@ const {
   dialog,
   globalShortcut,
   ipcMain,
+  powerMonitor,
   safeStorage,
+  session,
   shell,
 } = require('electron')
 const path = require('node:path')
@@ -39,7 +41,9 @@ app.setPath('userData', path.join(app.getPath('appData'), 'KovaPresets'))
 // of silently stacking another copy in the tray (the X hides to tray, so
 // "close then start again" would otherwise pile up instances).
 if (!app.requestSingleInstanceLock()) {
-  app.quit()
+  // exit, not quit: quit() is async and the rest of this file would still run -
+  // a second window and tray, and a pending flush racing the first instance
+  app.exit(0)
 } else {
   app.on('second-instance', () => showWindow())
 }
@@ -53,9 +57,16 @@ let quitting = false
 // tasklist spawn (blocks the main process), a Steam-library re-scan, and a
 // re-read of ~55 theme JSONs per tick.
 let installCache = null // a found install doesn't move while the app runs
+// No install: the Steam scan is a sync reg spawn plus vdf reads on the main
+// thread, and the renderer asks every few seconds. Retry the miss once a minute.
+let installMissAt = 0
+const INSTALL_RETRY_MS = 60_000
 function findInstall(rescan) {
   if (rescan) installCache = null
-  if (!installCache) installCache = k.findInstall()
+  if (!installCache && (rescan || Date.now() - installMissAt > INSTALL_RETRY_MS)) {
+    installCache = k.findInstall()
+    installMissAt = installCache ? 0 : Date.now()
+  }
   return installCache
 }
 
@@ -150,8 +161,9 @@ function createWindow() {
   win.removeMenu()
   // Renderer errors land in the log too - a blank preset list in a user report
   // otherwise leaves nothing to go on.
-  win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
-    if (level >= 3) log('renderer error', message, `${String(sourceId).split(/[\\/]/).pop()}:${line}`)
+  // Electron 43 passes one event object; the positional form is deprecated
+  win.webContents.on('console-message', (e) => {
+    if (e.level === 'error') log('renderer error', e.message, `${String(e.sourceId).split(/[\\/]/).pop()}:${e.lineNumber}`)
   })
   // The preload bridge is attached to the WINDOW, not the page, so anything
   // that loads here inherits it. The app has no in-app links or popups, so
@@ -236,6 +248,10 @@ function saveSettings(s) {
 // in-game), and that's the main case - so we park in the previous scenario
 // first, then jump back. The second jump is a real scenario change = full load.
 const REENTER_HOP_MS = 2500
+// Toasts only reach someone looking at the window. isVisible() alone is still
+// true when it's minimized or sitting behind a fullscreen KovaaK's.
+const windowUnseen = () => !win || !win.isVisible() || win.isMinimized() || !win.isFocused()
+
 const scenarioLink = (name, challenge) =>
   `steam://run/${STEAM_APP_ID}/?action=jump-to-scenario;name=${encodeURIComponent(name)}${challenge ? ';mode=challenge' : ''}`
 
@@ -285,7 +301,7 @@ function closeGame() {
   // pending flush lands after it exits so our values win. A force kill risks
   // losing the player's unsaved stats for no benefit.
   return new Promise((resolve) => {
-    execFile('taskkill', ['/IM', k.GAME_EXE], { windowsHide: true }, () => resolve())
+    execFile('taskkill', ['/IM', k.GAME_WINDOW_EXE], { windowsHide: true }, () => resolve())
   })
 }
 
@@ -396,9 +412,9 @@ function clearPending() {
 // library makes them vanish mid-session. Swallow and retry next tick - pending
 // stays on disk, so nothing is lost.
 let lastFlushError = ''
-function flushPendingIfPossible() {
+function flushPendingIfPossible(opts) {
   try {
-    const r = flushPending()
+    const r = flushPending(opts)
     lastFlushError = ''
     return r
   } catch (e) {
@@ -412,7 +428,9 @@ function flushPendingIfPossible() {
   }
 }
 
-function flushPending() {
+// `knownClosed`: the caller has just asked tasklist itself (an apply does),
+// so a second blocking spawn would only repeat the answer.
+function flushPending({ knownClosed = false } = {}) {
   // No queue at all is the overwhelmingly common tick - skip on a bare stat.
   if (!fs.existsSync(pendingFile())) return false
   const pending = readPending()
@@ -424,10 +442,12 @@ function flushPending() {
   // being wrong writes into a live game - so only that path pays, and it happens
   // once, because the flush it guards clears the queue.
   if (gameRunning()) return false
-  if (gameRunningNow()) return false
+  if (!knownClosed && gameRunningNow()) return false
   const install = findInstall()
   if (!install) return false
   const p = k.paths(install)
+  // undo restore: the proxy file first, then the settings file that selects it
+  if (pending.proxyRaw != null) k.writeFileAtomic(p.proxy, pending.proxyRaw)
   if (pending.primaryRaw != null)
     // undo restore: put the exact captured file back
     k.writeFileAtomic(p.primary, pending.primaryRaw)
@@ -442,9 +462,9 @@ function flushPending() {
     // inside the game install, so a Steam "verify integrity" can delete the
     // proxy between the apply and this flush. Rebuild it from the queued intent
     // rather than letting CurrentThemeName name a theme that doesn't exist.
-    if (pending.primary.proxyName) {
-      if (!k.setProxyThemeName(install, pending.primary.proxyName))
-        k.writeProxyTheme(install, pending.primary, pending.primary.proxyName)
+    const name = pending.primary.proxyName
+    if (typeof name === 'string' && k.proxyThemeName(name) === name) {
+      if (!k.setProxyThemeName(install, name)) k.writeProxyTheme(install, pending.primary, name)
     }
     k.applyPrimary(install, pending.primary)
   }
@@ -471,8 +491,16 @@ function captureBaselineIfMissing(install) {
   const files = { weapon: p.weapon, primary: p.primary, proxy: p.proxy, ui: p.ui }
   const dir = baselineDir()
   fs.mkdirSync(dir, { recursive: true })
-  for (const [name, file] of Object.entries(files))
-    if (fs.existsSync(file)) fs.copyFileSync(file, path.join(dir, `${name}.bak`))
+  // A restore queued while the game ran deletes the baseline but only writes
+  // the originals at quit. Until then the disk still holds the modified setup,
+  // so the queued originals are the real baseline.
+  const queued = readPending() || {}
+  const fromQueue = { weapon: queued.weaponRaw, primary: queued.primaryRaw, proxy: queued.proxyRaw, ui: queued.ui }
+  for (const [name, file] of Object.entries(files)) {
+    const bak = path.join(dir, `${name}.bak`)
+    if (queued.primaryRaw != null && fromQueue[name] != null) fs.writeFileSync(bak, fromQueue[name])
+    else if (fs.existsSync(file)) fs.copyFileSync(file, bak)
+  }
 }
 
 function deactivatePresets() {
@@ -488,8 +516,11 @@ function deactivatePresets() {
   // weapon + proxy theme are safe to write any time
   const weapon = read('weapon.bak')
   if (weapon != null) k.writeFileAtomic(p.weapon, weapon)
+  // The proxy is safe to rewrite live, but not to RENAME: the running game
+  // selects it by the name it read at launch. Running, the baseline file is
+  // queued and written at quit with the original settings file.
   const proxy = read('proxy.bak')
-  if (proxy != null) k.writeFileAtomic(p.proxy, proxy)
+  if (proxy != null && !running) k.writeFileAtomic(p.proxy, proxy)
   // game-owned files follow the closed-game rule
   const primaryRaw = read('primary.bak')
   const ui = read('ui.bak')
@@ -502,6 +533,7 @@ function deactivatePresets() {
     const pending = {}
     if (weapon != null) pending.weaponRaw = weapon
     if (primaryRaw != null) pending.primaryRaw = primaryRaw
+    if (proxy != null) pending.proxyRaw = proxy
     if (ui != null) pending.ui = ui
     setPending(pending)
     queued = primaryRaw != null || ui != null
@@ -519,6 +551,10 @@ function deactivatePresets() {
 function doApplyPreset(preset) {
   const install = requireInstall()
   const running = gameRunningNow()
+  // The game just quit and the 4s tick hasn't flushed yet: land the old queue
+  // first, or this apply either merges with it or (clearPending) drops a
+  // queued HUD layout.
+  if (!running) flushPendingIfPossible({ knownClosed: true })
   captureBaselineIfMissing(install)
   const weaponChanged = k.applyWeapon(install, preset.weapon)
 
@@ -554,11 +590,15 @@ function doApplyPreset(preset) {
   // silently does nothing. That was the other half of the intermittent sens - the
   // half a fresh running-check can't fix.
   const primaryChanged = k.primaryDiffers(install, preset.primary)
+  // What the toast says about the theme: only when the theme itself changed.
+  // Before anything below rewrites the proxy file it compares against.
+  const themeChanged = k.hasThemeFields(preset.primary) && k.primaryDiffers(install, k.themePart(preset.primary))
   let primaryIntent = null
   if (preset.primary) {
     primaryIntent = structuredClone(preset.primary)
+    delete primaryIntent.proxyName // only ever set below, never carried in by a preset
     if (!primaryIntent.stringSettings) primaryIntent.stringSettings = {}
-    if (primaryChanged) {
+    if (primaryChanged && k.hasThemeFields(preset.primary)) {
       // The proxy's name mirrors the preset's theme so overlays and the in-game
       // menu read something meaningful - but the name is the game's selection
       // key, bound in memory at launch, so it can only move while the game is
@@ -599,14 +639,29 @@ function doApplyPreset(preset) {
     // The exception is a field presets carry NOTHING for: a HUD layout saved
     // from the editor mid-session (pending.ui) is its own intent and stands.
     const prev = readPending() || {}
-    const next = { weapon: preset.weapon, primary: primaryIntent }
+    // presetId: the tray ticks the queued preset (a restore's queue has none)
+    const next = { weapon: preset.weapon, primary: primaryIntent, presetId: preset.id || null }
     if (prev.ui != null) next.ui = prev.ui
+    // A second apply whose theme the proxy already shows changes nothing
+    // visible, so it sets no proxyName - but the previous apply's queued
+    // relabel still has to happen at quit, or the menu and overlay fall back to
+    // the launch-time name. Only while ON the proxy: off it, "nothing differs"
+    // means the launch-time theme, and carrying the old name would arm the
+    // previous preset's theme at quit.
+    // Same for a preset with no theme at all (a sens-only import): replacing the
+    // queue would otherwise cancel the theme switch the previous apply armed.
+    const prevName = prev.primary?.proxyName
+    const keepTheme = !k.hasThemeFields(preset.primary) || (!primaryChanged && k.proxyThemeSelected(install))
+    if (keepTheme && primaryIntent && typeof prevName === 'string') {
+      primaryIntent.proxyName = prevName
+      primaryIntent.stringSettings.CurrentThemeName = prevName
+    }
     setPending(next)
-    if (wantPrimary) theme = k.proxyThemeSelected(install) ? 'live' : 'arming'
+    if (themeChanged) theme = k.proxyThemeSelected(install) ? 'live' : 'arming'
   } else if (wantPrimary) {
     k.applyPrimary(install, wantPrimary)
     clearPending()
-    theme = 'applied'
+    if (themeChanged) theme = 'applied'
   }
   // `queued` = game-owned fields (theme/sens/DPI) waiting on the game to close.
   // Only a full restart makes those live, so it gates that escalation.
@@ -707,14 +762,48 @@ function loadPresetsMigrated(install) {
 // ---- tray -----------------------------------------------------------------------
 // The menu is built fresh on every right-click (there's no "before show" hook on
 // Windows), so it always reflects the current preset list.
+// The preset in use, for the tray's tick. A queued apply hasn't reached the
+// files yet, so while one is pending the queue says which preset it is (a
+// queued restore carries none - nothing's ticked until it lands).
+function activePresetId(presets) {
+  const pending = readPending()
+  if (pending) return pending.presetId ?? null
+  const install = findInstall()
+  if (!install) return null
+  try {
+    // only the ones the menu shows - each check reads the settings files
+    return presets.slice(0, TRAY_PRESETS).find((p) => !k.weaponDiffers(install, p.weapon) && !k.primaryDiffers(install, p.primary))?.id ?? null
+  } catch {
+    return null // a settings file mid-write; the tick just skips this time
+  }
+}
+
+const TRAY_PRESETS = 12
 function trayMenu() {
   const presets = store.load(userData())
-  const items = presets.slice(0, 12).map((p) => ({
-    label: p.hotkey ? `${p.name}  (${p.hotkey})` : p.name,
+  const activeId = activePresetId(presets)
+  const status = !findInstall() ? "KovaaK's not found" : gameRunningCache ? "KovaaK's is running" : "KovaaK's is closed"
+  // A radio list: the tick is the preset in use, the hotkey sits right-aligned
+  // where Windows menus put shortcuts (shown only - globalShortcut owns it).
+  const items = presets.slice(0, TRAY_PRESETS).map((p) => ({
+    label: p.name.replace(/&/g, '&&'), // & marks a mnemonic in Windows menus
+    type: 'radio',
+    checked: p.id === activeId,
+    ...(p.hotkey ? { accelerator: p.hotkey, registerAccelerator: false } : {}),
     click: () => applyAndNotify(p),
   }))
   return Menu.buildFromTemplate([
-    ...(items.length ? items : [{ label: 'No presets yet', enabled: false }]),
+    { label: `kova companion  ·  ${status}`, enabled: false, icon: trayIcon(gameRunningCache) },
+    { type: 'separator' },
+    ...(items.length
+      ? items
+      : [
+          { label: 'No presets yet', enabled: false },
+          { label: 'Capture your setup…', click: showWindow },
+        ]),
+    ...(presets.length > TRAY_PRESETS
+      ? [{ label: `${presets.length - TRAY_PRESETS} more in the app…`, click: showWindow }]
+      : []),
     { type: 'separator' },
     // The window can go unopened for days, so the staged update needs a route
     // that doesn't depend on anyone looking at it.
@@ -724,9 +813,10 @@ function trayMenu() {
     { label: 'Open kova companion', click: showWindow },
     // support surface: "sens didn't apply" reports come with a file to look at
     ...(logger.logPath()
-      ? [{ label: 'Open log file', click: () => shell.showItemInFolder(logger.logPath()) }]
+      ? [{ label: 'Show log file', click: () => shell.showItemInFolder(logger.logPath()) }]
       : []),
-    { label: 'Quit', click: () => app.quit() },
+    { type: 'separator' },
+    { label: 'Quit kova companion', click: () => app.quit() },
   ])
 }
 
@@ -770,7 +860,10 @@ function readActiveMerged(install) {
   if (pending) {
     if (pending.primary && active.primary)
       for (const [section, fields] of Object.entries(pending.primary))
-        active.primary[section] = { ...(active.primary[section] || {}), ...fields }
+        // sections only - proxyName is a string riding along, and spreading it
+        // turned it into {"0":"!",...} that captures then saved into presets
+        if (fields && typeof fields === 'object')
+          active.primary[section] = { ...(active.primary[section] || {}), ...fields }
     if (pending.ui != null) active.ui = pending.ui
     if (pending.weapon) active.weapon = { ...active.weapon, ...pending.weapon }
   }
@@ -924,12 +1017,28 @@ ipcMain.handle('presets:reorder', (_e, orderedIds) => {
 
 ipcMain.handle('presets:setHotkey', (_e, id, hotkey) => {
   const presets = store.load(userData())
+  let movedFrom = null
   for (const p of presets) {
     if (p.id === id) p.hotkey = hotkey || undefined
-    else if (hotkey && p.hotkey === hotkey) p.hotkey = undefined // steal = move
+    else if (hotkey && p.hotkey === hotkey) {
+      p.hotkey = undefined // steal = move
+      movedFrom = p
+    }
   }
   store.save(userData(), presets)
   registerHotkeys()
+  // Windows hands a combo to whichever app registered it first, and register()
+  // just fails. Don't keep a hotkey that will never fire - the renderer sees
+  // it missing and says so - and don't leave the preset it was moved from
+  // without one either.
+  if (hotkey && !globalShortcut.isRegistered(hotkey)) {
+    const p = presets.find((x) => x.id === id)
+    if (p) p.hotkey = undefined
+    if (movedFrom) movedFrom.hotkey = hotkey
+    store.save(userData(), presets)
+    registerHotkeys()
+    log("hotkey couldn't be registered", hotkey)
+  }
   return presets
 })
 
@@ -983,8 +1092,12 @@ ipcMain.handle('win:reload', () => win?.webContents.reload())
 // applyMode()) so the renderer never re-implements the autoRestart fallback.
 ipcMain.handle('settings:get', () => ({ ...loadSettings(), applyMode: applyMode() }))
 
+// Only the keys the renderer owns; everything else (clip folder, OBS host/port)
+// has its own validating handler, and a raw merge would bypass it.
+const RENDERER_SETTINGS = { onboarded: (v) => typeof v === 'boolean', applyMode: (v) => APPLY_MODES.has(v) }
 ipcMain.handle('settings:set', (_e, patch) => {
-  const s = { ...loadSettings(), ...patch }
+  const ok = Object.entries(patch || {}).filter(([key, v]) => RENDERER_SETTINGS[key]?.(v))
+  const s = { ...loadSettings(), ...Object.fromEntries(ok) }
   saveSettings(s)
   return s
 })
@@ -996,7 +1109,9 @@ ipcMain.handle('settings:set', (_e, patch) => {
 // That token is stored encrypted with the OS keystore (DPAPI on Windows) and
 // sent as a Bearer. The sync then posts the live in-game setup (core/companion.js)
 // whenever the game's settings files change - never scores or ranks.
-const KOVA_URL = process.env.KOVA_URL || 'https://kova.page' // KOVA_URL=http://localhost:3000 for dev
+// KOVA_URL=http://localhost:3000 for dev; ignored in release builds, where it
+// would send the bearer token wherever the variable points
+const KOVA_URL = (!app.isPackaged && process.env.KOVA_URL) || 'https://kova.page'
 const KOVA_CLIENT_ID = 'kova-companion'
 const kovaAuthFile = () => path.join(userData(), 'kova-auth.bin')
 let kovaToken = null
@@ -1106,18 +1221,23 @@ function postKovaLive(running) {
 }
 function kovaLiveStart() {
   clearTimeout(kovaLiveOffTimer)
+  kovaLiveOffTimer = null
   if (kovaLiveTimer || !kovaToken || !kovaSyncOn()) return
   postKovaLive(true)
   kovaLiveTimer = setInterval(() => postKovaLive(true), KOVA_LIVE_MS)
 }
 function kovaLiveStop({ now = false } = {}) {
-  const wasLive = !!kovaLiveTimer
+  const wasLive = !!kovaLiveTimer || !!kovaLiveOffTimer
   clearInterval(kovaLiveTimer)
   kovaLiveTimer = null
   clearTimeout(kovaLiveOffTimer)
+  kovaLiveOffTimer = null
   if (!wasLive) return Promise.resolve()
   if (now) return postKovaLive(false)
-  kovaLiveOffTimer = setTimeout(() => postKovaLive(false), KOVA_LIVE_OFF_DELAY_MS)
+  kovaLiveOffTimer = setTimeout(() => {
+    kovaLiveOffTimer = null
+    postKovaLive(false)
+  }, KOVA_LIVE_OFF_DELAY_MS)
   return Promise.resolve()
 }
 
@@ -1187,7 +1307,7 @@ async function startKovaSignIn() {
   })
   const grant = res?.ok ? await res.json().catch(() => null) : null
   if (!grant?.user_code) return { ok: false, error: "Couldn't reach kova. Check your connection and try again." }
-  let interval = (grant.interval || 5) * 1000
+  let interval = Math.max(5, Number(grant.interval) || 5) * 1000
   const expires = Date.now() + (grant.expires_in || 600) * 1000
   let timer = null
   const pending = {
@@ -1227,7 +1347,8 @@ async function startKovaSignIn() {
     if (r?.ok && data.access_token) {
       pending.cancel()
       saveKovaToken(data.access_token)
-      await refreshKovaUser()
+      await refreshKovaUser().catch(() => {})
+      loadProgress().catch(() => {}) // rank-up detection needs the thresholds
       startKovaSync()
       loadTournaments().catch(() => {}).finally(scheduleTournaments)
       if (gameRunningCache) kovaLiveStart()
@@ -1235,8 +1356,10 @@ async function startKovaSignIn() {
       return kovaNotify()
     }
     // RFC 8628: keep polling while pending, back off on slow_down, stop on anything final
+    // a 5xx / rate limit is transient - keep going like an offline poll
+    const transient = r && (r.status >= 500 || r.status === 429)
     if (data.error === 'slow_down') interval += 5000
-    else if (r && data.error !== 'authorization_pending') {
+    else if (r && !transient && data.error !== 'authorization_pending') {
       pending.cancel()
       return kovaNotify()
     }
@@ -1279,7 +1402,12 @@ ipcMain.handle('kova:setPbPopups', (_e, on) => {
   return kovaState()
 })
 ipcMain.handle('kova:setSnipes', (_e, on) => {
-  saveSettings({ ...loadSettings(), snipeAlerts: !!on })
+  const s = { ...loadSettings(), snipeAlerts: !!on }
+  // back on: start from now, not from wherever the cursor stopped - otherwise
+  // every PB from the time alerts were off arrives at once
+  if (on) delete s.snipeCursor
+  saveSettings(s)
+  scheduleSnipes(on ? 1000 : undefined)
   return kovaState()
 })
 ipcMain.handle('kova:setSync', (_e, on) => {
@@ -1388,7 +1516,7 @@ function onRunFinished(file, attempt = 0) {
     const info = { scenario: s.name, rank: crossed.rank, color: crossed.color || null, score: run.score, over: Math.round((run.score - crossed.score) * 10) / 10 }
     log('rank-up', info.scenario, info.rank, info.score)
     // The window usually sits in the tray mid-session: the OS toast is what's seen.
-    if (!win?.isVisible() && Notification.isSupported())
+    if (windowUnseen() && Notification.isSupported())
       new Notification({ title: `${info.rank} on ${info.scenario}`, body: `${info.score}, ${info.over} over the line` }).show()
     win?.webContents.send('rank-up', info)
   } else if (prevBest != null && run.score > prevBest && loadSettings().pbPopups) {
@@ -1477,6 +1605,8 @@ ipcMain.handle('history:get', () => loadHistory())
 // The recap moment: KovaaK's just closed. Called from the game poll on the
 // running -> closed edge with when the game was first seen running.
 async function onGameClosed(startedAt) {
+  // a rank-up session belongs to one sitting; runs next time start fresh
+  rankSession = null
   const install = findInstall()
   if (!install || !startedAt) return
   const all = await progress.allRuns(install)
@@ -1498,7 +1628,7 @@ async function onGameClosed(startedAt) {
   }
   const info = { day: history.dayKey(runs[runs.length - 1].ts), runs: runs.length, pbs: pbScenarios.size, rankUps }
   log('session ended', info.runs, 'runs', info.pbs, 'PBs')
-  if (!win?.isVisible() && Notification.isSupported()) {
+  if (windowUnseen() && Notification.isSupported()) {
     const n = new Notification({
       title: `Session done: ${info.runs} runs${info.pbs ? `, ${info.pbs} new PB${info.pbs === 1 ? '' : 's'}` : ''}`,
       body: `${info.rankUps.length ? `${info.rankUps[0].rank} on ${info.rankUps[0].scenario}. ` : ''}Click for the recap.`,
@@ -1523,7 +1653,7 @@ const clipCfg = () => ({ ...CLIP_DEFAULTS, ...(loadSettings().clip || {}) })
 const clipFolder = () => clipCfg().folder || path.join(app.getPath('videos'), 'kova companion')
 const obsPassFile = () => path.join(userData(), 'obs-pass.bin')
 const clipsFile = () => path.join(userData(), 'clips.json')
-const CLIPS_KEPT = 50 // the Recent clips list; the files themselves are never deleted by us
+const CLIPS_KEPT = 50 // the Recent clips list; files only go when the player deletes one
 const OBS_RETRY_MS = 15000
 
 function loadObsPass() {
@@ -1551,6 +1681,16 @@ const CLIP_JOB_TTL_MS = 30_000 // OBS answers in a second or two; older means it
 // results, so a save that restarts OBS twice can't leave two sockets open.
 let obsGen = 0
 const clipNotify = () => win?.webContents.send('clip-changed')
+// OBS status only: each 15s retry walks connecting -> error, and re-rendering
+// the Clips page for an unchanged "Not connected" flickers it and drops focus.
+let lastObsSig = ''
+function obsNotify() {
+  const sig = `${obsState.status}|${obsState.error}`
+  if (obsState.status === 'connecting' && lastObsSig.startsWith('error|')) return // a quiet retry
+  if (sig === lastObsSig) return
+  lastObsSig = sig
+  clipNotify()
+}
 
 function obsStop() {
   obsGen += 1
@@ -1564,10 +1704,10 @@ function obsStop() {
 async function obsStart() {
   obsStop()
   const cfg = clipCfg()
-  if (!cfg.on) return clipNotify()
+  if (!cfg.on) return obsNotify()
   const gen = obsGen
   obsState = { status: 'connecting', error: null }
-  clipNotify()
+  obsNotify()
   // Declared before the connect call: OBS can close the socket (a wrong password)
   // before obsConnect has resolved, and onClose must not touch an unset binding.
   let conn = null
@@ -1580,7 +1720,8 @@ async function obsStart() {
             while (pendingClips[0] && Date.now() - pendingClips[0].savedAt > CLIP_JOB_TTL_MS) pendingClips.shift()
             const job = pendingClips.shift()
             // a save we didn't ask for (the streamer's own hotkey): not ours to move
-            if (job) finishClip(job, data.savedReplayPath).catch((e) => log('clip failed', e?.message))
+            if (job && isVideoFile(data.savedReplayPath))
+              finishClip(job, data.savedReplayPath).catch((e) => log('clip failed', e?.message))
           }
         },
         onClose: () => {
@@ -1590,7 +1731,8 @@ async function obsStart() {
           obs = null
           pendingClips = []
           obsState = { status: 'error', error: 'OBS closed' }
-          clipNotify()
+          obsNotify()
+          clearTimeout(obsRetry)
           obsRetry = setTimeout(obsStart, OBS_RETRY_MS)
         },
       }
@@ -1599,21 +1741,31 @@ async function obsStart() {
     if (gen !== obsGen) return conn.close()
     obs = conn
     // The whole feature rides on the replay buffer, so switch it on if it's off.
-    const st = await conn.request('GetReplayBufferStatus').catch(() => null)
-    if (st && !st.outputActive)
-      await conn.request('StartReplayBuffer').catch(() => {
-        throw new Error('Turn on the replay buffer in OBS: Settings, Output, Replay Buffer')
-      })
+    // OBS answers the status request with an error when the replay buffer is
+    // disabled in its settings - the likeliest misconfiguration, so say so
+    const noBuffer = () => {
+      throw new Error('Turn on the replay buffer in OBS: Settings, Output, Replay Buffer')
+    }
+    const st = await conn.request('GetReplayBufferStatus').catch(noBuffer)
+    if (!st.outputActive) await conn.request('StartReplayBuffer').catch(noBuffer)
+    // OBS dropped while we were asking: onClose already took over
+    if (obs !== conn || gen !== obsGen) return
     obsState = { status: 'connected', error: null }
   } catch (e) {
     conn?.close() // only this attempt's socket - a newer one may be the live one
     if (gen !== obsGen) return
+    // OBS dropped mid-request: onClose already said "OBS closed" and armed the
+    // retry - the request's rejection isn't a replay-buffer problem
+    if (conn && obs !== conn) return
     if (obs === conn) obs = null
     obsState = { status: 'error', error: e?.message || "Couldn't reach OBS" }
-    // OBS not running yet is the normal case at app start: keep trying quietly
-    obsRetry = setTimeout(obsStart, OBS_RETRY_MS)
+    clearTimeout(obsRetry) // onClose may have armed one already
+    // OBS not running yet is the normal case at app start: keep trying quietly.
+    // A wrong password won't fix itself - wait for the user to change it
+    // (clip:setPassword restarts the connection).
+    if (obsState.error !== 'Wrong OBS password') obsRetry = setTimeout(obsStart, OBS_RETRY_MS)
   }
-  clipNotify()
+  obsNotify()
 }
 
 function clipRun(run, prevBest, rank) {
@@ -1652,6 +1804,27 @@ function hasFfmpeg() {
   )
 }
 
+// Defender can hold a just-written video for a moment; a leftover OBS copy is
+// harmless, losing the clip that was already saved is not.
+// The path comes off the OBS socket, and finishClip moves that file and Play
+// later opens it - only ever a video file.
+const VIDEO_EXT = new Set(['.mp4', '.mkv', '.mov', '.flv', '.ts', '.m4v'])
+function isVideoFile(file) {
+  try {
+    return typeof file === 'string' && VIDEO_EXT.has(path.extname(file).toLowerCase()) && fs.statSync(file).isFile()
+  } catch {
+    return false
+  }
+}
+
+function rmQuiet(file) {
+  try {
+    fs.rmSync(file, { force: true })
+  } catch (e) {
+    log('clip: could not remove', file, e?.message)
+  }
+}
+
 async function finishClip(job, src) {
   if (!src || !fs.existsSync(src)) return
   const cfg = clipCfg()
@@ -1661,10 +1834,12 @@ async function finishClip(job, src) {
   const fromEnd = clipper.trimFromEndS(job.run, job.savedAt)
   if (cfg.trim && fromEnd && (await hasFfmpeg())) {
     trimmed = await new Promise((resolve) =>
-      execFile(ffmpegBin(), clipper.ffmpegArgs(src, dest, fromEnd), { windowsHide: true }, (err) => resolve(!err))
+      execFile(ffmpegBin(), clipper.ffmpegArgs(src, dest, fromEnd), { windowsHide: true, timeout: 120_000 }, (err) =>
+        resolve(!err)
+      )
     )
     // OBS's copy was only ever made for this clip
-    if (trimmed) fs.rmSync(src, { force: true })
+    if (trimmed) rmQuiet(src)
   }
   if (!trimmed) {
     try {
@@ -1673,7 +1848,7 @@ async function finishClip(job, src) {
       // another drive: rename can't cross volumes. Async - a replay buffer can be
       // hundreds of MB, and a sync copy would freeze the window.
       await fs.promises.copyFile(src, dest)
-      fs.rmSync(src, { force: true })
+      rmQuiet(src)
     }
   }
   const { reason, run } = job
@@ -1681,7 +1856,7 @@ async function finishClip(job, src) {
   const clip = { file: dest, scenario: run.scenario, score: run.score, why, at: Date.now(), trimmed }
   k.writeFileAtomic(clipsFile(), JSON.stringify([clip, ...loadClips()].slice(0, CLIPS_KEPT), null, 2))
   log('clip saved', dest)
-  if (!win?.isVisible() && Notification.isSupported())
+  if (windowUnseen() && Notification.isSupported())
     new Notification({ title: `Clip saved: ${run.scenario}`, body: `${run.score}, ${why}` }).show()
   win?.webContents.send('clip-saved', clip)
   clipNotify()
@@ -1736,7 +1911,27 @@ ipcMain.handle('clip:openFolder', () => {
 })
 // Only a file this app recorded as a clip can be opened from here.
 ipcMain.handle('clip:play', (_e, file) => {
-  if (loadClips().some((c) => c.file === file)) shell.openPath(file)
+  if (loadClips().some((c) => c.file === file) && VIDEO_EXT.has(path.extname(file).toLowerCase())) shell.openPath(file)
+})
+// Only a file the app recorded, and to the Recycle Bin rather than gone: a
+// misclick on a PB clip should be undoable. A file already removed by hand
+// just drops off the list.
+ipcMain.handle('clip:delete', async (_e, file) => {
+  const clips = loadClips()
+  if (!clips.some((c) => c.file === file)) return { ok: false }
+  if (fs.existsSync(file)) {
+    if (!VIDEO_EXT.has(path.extname(file).toLowerCase())) return { ok: false }
+    try {
+      await shell.trashItem(file)
+    } catch (e) {
+      log('clip delete failed', file, e?.message)
+      return { ok: false, error: "Couldn't move that clip to the Recycle Bin - is it open somewhere?" }
+    }
+  }
+  k.writeFileAtomic(clipsFile(), JSON.stringify(clips.filter((c) => c.file !== file), null, 2))
+  log('clip deleted', file)
+  clipNotify()
+  return { ok: true }
 })
 
 // ---- tournaments -------------------------------------------------------------------
@@ -1748,19 +1943,36 @@ const TOURNEY_FAST_MS = 60 * 1000 // something registered, upcoming or live
 const TOURNEY_SLOW_MS = 15 * 60 * 1000 // nothing on: just notice new entries
 let tourneyData = null
 let tourneyTimer = null
-const tourneyReminded = new Set() // `checkin:<id>` / `live:<matchId>`, once per app run
+// `checkin:<id>` / `live:<matchId>`. Kept in settings: quitting from the tray and
+// starting again while check-in is open used to remind a second time.
+const tourneyReminded = new Set(Array.isArray(loadSettings().tourneyReminded) ? loadSettings().tourneyReminded : [])
+function rememberReminded(key) {
+  tourneyReminded.add(key)
+  saveSettings({ ...loadSettings(), tourneyReminded: [...tourneyReminded] })
+}
 
 // `announce`: tell the page it changed. Only the background poll does - the page
 // asking for the data itself must not, or its own re-render asks again, forever.
 async function loadTournaments({ announce = true } = {}) {
   if (!kovaToken) return { ok: false, reason: 'signed-out' }
+  const tok = kovaToken
   const res = await kovaFetch('/api/companion/tournaments')
   if (res?.status === 401) {
     kovaForget()
     return { ok: false, reason: 'signed-out' }
   }
-  const data = res?.ok ? await res.json().catch(() => null) : null
-  if (!data?.current) return { ok: false, reason: 'offline' }
+  const raw = res?.ok ? await res.json().catch(() => null) : null
+  // signed out (or into another account) while this was in flight
+  if (kovaToken !== tok) return { ok: false, reason: 'signed-out' }
+  if (!Array.isArray(raw?.current)) return { ok: false, reason: 'offline' }
+  // the reminders and both pages index into these: a missing piece is an
+  // empty one, not a throw halfway through the reminders
+  const obj = (v) => (v && typeof v === 'object' ? v : null)
+  const data = {
+    ...raw,
+    current: raw.current.filter((t) => obj(t) && t.id != null).map((t) => ({ ...t, checkIn: obj(t.checkIn) || {}, match: obj(t.match) })),
+    past: Array.isArray(raw.past) ? raw.past.filter((t) => obj(t) && t.id != null) : [],
+  }
   tourneyData = data
   remindTournaments(data)
   if (announce) win?.webContents.send('tournaments-changed', { live: data.current.some((t) => t.match?.status === 'LIVE') })
@@ -1768,11 +1980,19 @@ async function loadTournaments({ announce = true } = {}) {
 }
 
 function remindTournaments(data) {
+  // forget tournaments that left the list, so the setting doesn't grow forever
+  const live = new Set(data.current.flatMap((t) => [`checkin:${t.id}`, ...(t.match ? [`live:${t.match.id}`] : [])]))
+  const kept = [...tourneyReminded].filter((key) => live.has(key))
+  if (kept.length !== tourneyReminded.size) {
+    tourneyReminded.clear()
+    for (const key of kept) tourneyReminded.add(key)
+    saveSettings({ ...loadSettings(), tourneyReminded: kept })
+  }
   // Check-ins first, live matches last: the app shows one toast at a time and the
   // last one stays up, so the more urgent reminder is the one that lands.
   for (const t of data.current) {
     if (t.checkIn.open && !t.checkIn.checkedIn && !tourneyReminded.has(`checkin:${t.id}`)) {
-      tourneyReminded.add(`checkin:${t.id}`)
+      rememberReminded(`checkin:${t.id}`)
       const starts = t.startsAt ? new Date(t.startsAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : null
       tourneyNotify('checkin', t, { title: 'Check-in is open', body: `${t.name}${starts ? ` starts at ${starts}` : ''}` })
     }
@@ -1780,7 +2000,7 @@ function remindTournaments(data) {
   for (const t of data.current) {
     const m = t.match
     if (m?.status === 'LIVE' && !tourneyReminded.has(`live:${m.id}`)) {
-      tourneyReminded.add(`live:${m.id}`)
+      rememberReminded(`live:${m.id}`)
       const game = m.game ? ` · Game ${m.game.number}: ${m.game.scenario}` : ''
       tourneyNotify('live', t, { title: 'Your match is live', body: `vs ${m.opponent || 'TBD'}${game}` })
     }
@@ -1791,7 +2011,7 @@ function remindTournaments(data) {
 // whose click only opens the page - it doesn't check in or launch anything.
 function tourneyNotify(kind, t, { title, body }) {
   log('tournament', kind, t.name)
-  if (!win?.isVisible() && Notification.isSupported()) {
+  if (windowUnseen() && Notification.isSupported()) {
     const n = new Notification({ title, body })
     n.on('click', () => {
       showWindow()
@@ -1829,8 +2049,7 @@ ipcMain.handle('tournaments:checkIn', async (_e, id) => {
 // payload - never an arbitrary URL from the renderer.
 ipcMain.handle('tournaments:play', (_e, matchId) => {
   const m = tourneyData?.current?.map((t) => t.match).find((x) => x?.id === matchId)
-  const url = m?.game?.playUrl
-  if (typeof url === 'string' && url.startsWith(`steam://run/${STEAM_APP_ID}/`)) shell.openExternal(url)
+  if (typeof m?.game?.scenario === 'string' && m.game.scenario) shell.openExternal(scenarioLink(m.game.scenario, true))
 })
 ipcMain.handle('tournaments:open', (_e, slug) => {
   const known = [...(tourneyData?.current || []), ...(tourneyData?.past || [])].some((t) => t.slug === slug)
@@ -1845,13 +2064,21 @@ let challengeData = null
 
 async function loadChallenge() {
   if (!kovaToken) return { ok: false, reason: 'signed-out' }
+  const tok = kovaToken
   const res = await kovaFetch('/api/companion/challenge')
   if (res?.status === 401) {
     kovaForget()
     return { ok: false, reason: 'signed-out' }
   }
-  const data = res?.ok ? await res.json().catch(() => null) : null
-  if (!Array.isArray(data?.teams)) return { ok: false, reason: 'offline' }
+  const raw = res?.ok ? await res.json().catch(() => null) : null
+  if (kovaToken !== tok) return { ok: false, reason: 'signed-out' }
+  if (!Array.isArray(raw?.teams)) return { ok: false, reason: 'offline' }
+  const data = {
+    ...raw,
+    teams: raw.teams
+      .filter((t) => typeof t?.team?.slug === 'string')
+      .map((t) => ({ ...t, standings: Array.isArray(t.standings) ? t.standings : [], past: Array.isArray(t.past) ? t.past : [] })),
+  }
   challengeData = data
   return { ok: true, ...data }
 }
@@ -1879,6 +2106,7 @@ const snipesSeen = new Map() // snipe id -> its PB, for the Play button
 
 async function pollSnipes() {
   if (!kovaToken) return
+  const tok = kovaToken
   const s = loadSettings()
   const baseline = !s.snipeCursor
   let cursor = s.snipeCursor || ''
@@ -1893,6 +2121,8 @@ async function pollSnipes() {
     if (data.cursor) cursor = data.cursor
     if (data.pbs.length < 100) break
   }
+  // a sign-out mid-poll deleted the cursor; don't write the old account's back
+  if (kovaToken !== tok) return
   saveSettings({ ...loadSettings(), snipeCursor: cursor || new Date().toISOString() })
   const install = findInstall()
   if (baseline || !s.snipeAlerts || !install || !fresh.length) return
@@ -1906,7 +2136,7 @@ async function pollSnipes() {
   const title = `${p.name} beat your best`
   const body = `${p.scenario}: ${Math.round(p.score)} vs your ${Math.round(p.mine)}${more ? ` (+${more} more)` : ''}`
   log('snipe', p.username, p.scenario)
-  if (!win?.isVisible() && Notification.isSupported()) {
+  if (windowUnseen() && Notification.isSupported()) {
     const n = new Notification({ title, body })
     n.on('click', () => shell.openExternal(scenarioLink(p.scenario))) // the one click: straight into it
     n.show()
@@ -1916,7 +2146,7 @@ async function pollSnipes() {
 
 function scheduleSnipes(ms = SNIPE_POLL_MS) {
   clearTimeout(snipeTimer)
-  if (!kovaToken) return
+  if (!kovaToken || !loadSettings().snipeAlerts) return // off: nothing to ask kova
   snipeTimer = setTimeout(async () => {
     await pollSnipes().catch((e) => log('snipes failed', e.message))
     scheduleSnipes()
@@ -1963,14 +2193,11 @@ ipcMain.handle('presets:import', async () => {
   if (!incoming) return { ok: false, error: "That file doesn't look like a kova companion preset export." }
   const presets = store.load(userData())
   let count = 0
-  for (const p of incoming) {
-    if (!p || typeof p !== 'object' || (!p.weapon && !p.primary)) continue
-    presets.push({
-      id: store.newId(),
-      name: String(p.name || 'Imported preset').slice(0, 80),
-      weapon: p.weapon && typeof p.weapon === 'object' ? p.weapon : {},
-      primary: p.primary && typeof p.primary === 'object' ? p.primary : {},
-    })
+  for (const p of incoming.slice(0, 200)) {
+    // applying writes these values into the game's files: managed keys only, typed
+    const clean = k.sanitizePreset(p)
+    if (!clean) continue
+    presets.push({ id: store.newId(), name: String(p.name || 'Imported preset').slice(0, 80), ...clean })
     count++
   }
   if (!count) return { ok: false, error: 'No presets found in that file.' }
@@ -1987,12 +2214,20 @@ ipcMain.handle('hud:save', (_e, uiRaw) => {
   // The HUD editor writes UI.json directly, so "Restore original setup" must
   // have the pre-kova-companion layout on file before the first save lands.
   captureBaselineIfMissing(install)
-  if (gameRunning()) {
-    const pending = readPending() || {}
+  const pending = readPending()
+  // authoritative check: a stale "closed" writes UI.json into a running game
+  if (gameRunningNow()) {
     setPending({ ...pending, ui: uiRaw })
     return { status: 'queued' }
   }
   k.applyUi(install, uiRaw)
+  // a layout queued earlier would overwrite this one at the next flush
+  if (pending?.ui != null) {
+    const rest = { ...pending }
+    delete rest.ui
+    if (Object.keys(rest).length) setPending(rest)
+    else clearPending()
+  }
   return { status: 'applied' }
 })
 
@@ -2019,8 +2254,9 @@ function initAutoUpdate() {
     // to go unmentioned indefinitely.
     if (tray && !tray.isDestroyed()) tray.setToolTip(`kova companion - update ${info.version} ready`)
   })
-  // offline, rate-limited, or no release yet - just try again on the next tick
-  autoUpdater.on('error', () => {})
+  // offline, rate-limited, or no release yet - just try again on the next tick,
+  // but leave a trace: a broken feed (e.g. after the repo rename) is otherwise invisible
+  autoUpdater.on('error', (e) => log('update error', e?.message))
   const check = () => autoUpdater.checkForUpdates().catch(() => {})
   check()
   setInterval(check, UPDATE_POLL_MS)
@@ -2039,6 +2275,10 @@ ipcMain.handle('update:install', () => installUpdate())
 
 app.whenReady().then(() => {
   logger.init(userData())
+  // The UI needs no camera, mic, notifications-from-the-page or anything else
+  // a permission gates (main shows the notifications).
+  session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
+  session.defaultSession.setPermissionCheckHandler(() => false)
   log('---- app start', app.getVersion(), app.isPackaged ? 'packaged' : 'dev', '----')
   createWindow()
   createTray()
@@ -2063,6 +2303,19 @@ app.whenReady().then(() => {
   // finished runs drive clips, rank-ups and sessions, signed in or not
   startStatsWatch()
   if (clipCfg().on) obsStart()
+  // After sleep the timers resume where they stopped - a laptop waking up near
+  // check-in would wait out a 15-minute tournament poll. Ask again right away
+  // (a beat later: the network usually isn't back the instant Windows is).
+  powerMonitor.on('resume', () => {
+    setTimeout(() => {
+      if (kovaToken) {
+        refreshKovaUser().catch(() => {})
+        loadTournaments().catch(() => {}).finally(scheduleTournaments)
+        scheduleSnipes(0)
+      }
+      if (clipCfg().on && !obs) obsStart()
+    }, 5000)
+  })
   // legacy storage from the removed per-apply undo system
   fs.rmSync(path.join(userData(), 'backups'), { recursive: true, force: true })
   // The "Start with Windows" setting is gone, but anyone who had it on still has
@@ -2078,8 +2331,16 @@ app.whenReady().then(() => {
   app.on('activate', showWindow)
 })
 
-app.on('before-quit', () => {
+// Take the overlay's setup slide down on quit instead of leaving it up until
+// kova's own expiry. A fire-and-forget POST never left before the process did,
+// so the quit waits for it - once, and never longer than 1.5s.
+let liveQuitSent = false
+app.on('before-quit', (e) => {
   quitting = true
+  if (liveQuitSent || !(kovaLiveTimer || kovaLiveOffTimer)) return
+  liveQuitSent = true
+  e.preventDefault()
+  Promise.race([kovaLiveStop({ now: true }), new Promise((r) => setTimeout(r, 1500))]).finally(() => app.quit())
 })
 
 app.on('will-quit', () => globalShortcut.unregisterAll())

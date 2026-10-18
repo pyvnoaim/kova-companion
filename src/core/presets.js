@@ -18,8 +18,11 @@ function load(userDataDir) {
     // auto-apply lived on presets once) - drop them so old stores don't carry
     // dead weight forever. Persisting the strip is the caller's job (it saves
     // on any change anyway).
-    for (const p of presets)
+    for (const p of presets) {
       for (const key of ['palette', 'ui', 'scenarios']) if (key in p) delete p[key]
+      // queue-only field that a capture bug once saved into presets as junk
+      if (p.primary && 'proxyName' in p.primary) delete p.primary.proxyName
+    }
     return presets
   } catch {
     return []

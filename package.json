@@ -16,7 +16,7 @@
   "scripts": {
     "start": "electron .",
     "lint": "eslint .",
-    "core:test": "node src/core/selftest.js",
+    "core:test": "node src/core/selftest.js && node src/core/selftest-main.js",
     "dist": "electron-builder",
     "release": "node scripts/release.js",
     "release:publish-only": "electron-builder --publish always"

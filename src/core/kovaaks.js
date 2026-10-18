@@ -80,6 +80,7 @@ const PRIMARY_MANAGED = {
     'EnemyGlowUpHead', 'EnemyGlowUpBody',
     'EnemyGlowUpHeadOnHit', 'EnemyGlowUpBodyOnHit',
     'EnemyGlowUpHeadOnLookAt', 'EnemyGlowUpBodyOnLookAt',
+    'TeamGlowUpHead', 'TeamGlowUpBody',
     // sound pitch/volume (hit, crit/headshot, enemy)
     'HitPitch', 'HitVolume', 'CritPitch', 'CritVolume', 'EnemyPitch', 'EnemyVolume',
     // global sensitivity (the in-game settings values; DPI sits in integerSettings)
@@ -119,6 +120,7 @@ function steamRoot() {
   try {
     const out = execFileSync('reg', ['query', 'HKCU\\SOFTWARE\\Valve\\Steam', '/v', 'SteamPath'], {
       encoding: 'utf8',
+      windowsHide: true, // a packaged GUI app would flash a console window
     })
     const m = out.match(/SteamPath\s+REG_SZ\s+(.+)/)
     if (m) return m[1].trim().replace(/\//g, '\\')
@@ -374,13 +376,59 @@ function applyUi(install, raw) {
 // IPC boundary rather than trusting the caller.
 const MAX_UI_RAW = 512 * 1024 // the file is a few KB in practice
 
+// ---- imported presets ---------------------------------------------------------
+// A .kovapreset.json comes from a stranger, and applying it writes its values
+// into the game's own files verbatim. Keep only the keys presets manage, with
+// the types the game writes, and asset names that are names, not paths.
+const isText = (v) => typeof v === 'string' && v.length <= 200 && !/[\r\n]/.test(v)
+const isName = (v) => isText(v) && !/[\\/:]|\.\./.test(v)
+// Only values the game resolves to a FILE get the path check. Sens scales are
+// free text with slashes and colons in them ("Quake/Source", "cm/360",
+// "Rainbow 6: Siege") - stripping those silently re-scaled imported sens.
+const NAMES_A_FILE = /File$|Sound$|^CurrentThemeName$|Material$/
+const okString = (key, v) => (NAMES_A_FILE.test(key) ? isName(v) : isText(v))
+const finite = (v, max = 1e6) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max
+const PRIMARY_TYPES = {
+  stringSettings: null, // per key: okString
+  floatSettings: (v) => finite(v),
+  integerSettings: (v) => Number.isInteger(v) && Math.abs(v) <= 1e6,
+  booleanSettings: (v) => typeof v === 'boolean',
+  vectorSettings: (v) => !!v && typeof v === 'object' && ['x', 'y', 'z'].every((c) => finite(v[c], 100)),
+  colorSettings: (v) => !!v && typeof v === 'object' && ['r', 'g', 'b', 'a'].every((c) => Number.isInteger(v[c]) && v[c] >= 0 && v[c] <= 255),
+}
+
+// { weapon, primary } with everything else dropped, or null if nothing's left.
+function sanitizePreset(p) {
+  if (!p || typeof p !== 'object') return null
+  const weapon = {}
+  for (const key of WEAPON_KEYS) if (okString(key, p.weapon?.[key])) weapon[key] = p.weapon[key]
+  const primary = {}
+  for (const [section, names] of Object.entries(PRIMARY_MANAGED)) {
+    const ok = PRIMARY_TYPES[section]
+    for (const name of names) {
+      const v = p.primary?.[section]?.[name]
+      if (v === undefined || !(ok ? ok(v) : okString(name, v)) || (name === 'DPI' && v <= 0)) continue
+      ;(primary[section] ||= {})[name] = v
+    }
+  }
+  if (!Object.keys(weapon).length && !Object.keys(primary).length) return null
+  return { weapon, primary }
+}
+
 function validUi(s) {
   if (typeof s !== 'string' || s.length > MAX_UI_RAW) return false
+  let ui
   try {
-    return JSON.parse(s) !== null
+    ui = JSON.parse(s)
   } catch {
     return false
   }
+  if (!ui || typeof ui !== 'object' || Array.isArray(ui)) return false
+  const list = (v, ok) => v === undefined || (Array.isArray(v) && v.every((e) => e && typeof e.windowName === 'string' && ok(e)))
+  return (
+    list(ui.windowPositionSettings, (e) => Number.isFinite(e.position?.x) && Number.isFinite(e.position?.y)) &&
+    list(ui.windowScaleSettings, (e) => Number.isFinite(e.scale) && e.scale > 0)
+  )
 }
 
 function listFiles(dir, exts) {
@@ -482,7 +530,34 @@ const THEME_FIELDS = [
   ['enemyGlowUpBodyOnHit', 'floatSettings', 'EnemyGlowUpBodyOnHit'],
   ['enemyGlowUpHeadOnLookAt', 'floatSettings', 'EnemyGlowUpHeadOnLookAt'],
   ['enemyGlowUpBodyOnLookAt', 'floatSettings', 'EnemyGlowUpBodyOnLookAt'],
+  // Verified in game 2026-10-18: selecting snopal-clarity (which sets these
+  // off their defaults) wrote them straight into PrimaryUserSettings.json, the
+  // moment the theme was picked - not only on exit. The theme key's name says
+  // "body colour as attack colour"; the settings key is EnemyAttacksColoredByBody.
+  // (TeamAttacksColoredByBody stayed put: not a theme field.)
+  ['setEnemyBodyColorAsAttackColor', 'booleanSettings', 'EnemyAttacksColoredByBody'],
+  ['teamGlowUpHead', 'floatSettings', 'TeamGlowUpHead'],
+  ['teamGlowUpBody', 'floatSettings', 'TeamGlowUpBody'],
 ]
+
+// Does a preset's primary carry a theme at all? A sens-only (e.g. imported)
+// preset has none, and rebuilding the proxy from it would write an empty theme.
+// Every captured or built preset names its theme; a stray field or two (an
+// import carrying just SkyColor) isn't a theme to rebuild the proxy from.
+function hasThemeFields(primary) {
+  return (
+    !!primary?.stringSettings?.CurrentThemeName &&
+    THEME_FIELDS.some(([, section, name]) => primary?.[section]?.[name] !== undefined)
+  )
+}
+// Just the theme's fields of a primary - for "did the THEME change", which a
+// sens-only difference mustn't answer.
+function themePart(primary) {
+  const out = {}
+  for (const [, section, name] of THEME_FIELDS)
+    if (primary?.[section]?.[name] !== undefined) (out[section] ||= {})[name] = primary[section][name]
+  return out
+}
 
 // Theme-file object -> primary-settings shape (the subset a theme can carry).
 function themeToPrimary(t) {
@@ -907,6 +982,11 @@ function checkHealth(install, { probeWrites = true } = {}) {
 // (a 3s poll, and the close-and-wait loop) and a drifting filter or match there
 // would read as "closed" and write into a live game.
 const GAME_EXE = 'FPSAimTrainer.exe'
+// FPSAimTrainer.exe is only the launcher stub: it refuses a graceful taskkill
+// ("can only be terminated forcefully"). The window belongs to the shipping
+// binary, which closes on WM_CLOSE in ~3s and takes the stub with it
+// (verified 2026-10-18).
+const GAME_WINDOW_EXE = 'FPSAimTrainer-Win64-Shipping.exe'
 // frozen: it's shared with main.js's poll and close-wait, and a mutated filter
 // would answer "closed" for a running game - the one direction that writes into
 // a live install
@@ -916,13 +996,16 @@ const tasklistSaysRunning = (out) => /FPSAimTrainer\.exe/i.test(String(out))
 // true / false, or null when tasklist itself failed - "don't know" is not "closed".
 function isGameRunning() {
   try {
-    return tasklistSaysRunning(execFileSync('tasklist', TASKLIST_ARGS, { encoding: 'utf8' }))
+    return tasklistSaysRunning(execFileSync('tasklist', TASKLIST_ARGS, { encoding: 'utf8', windowsHide: true }))
   } catch {
     return null
   }
 }
 
 module.exports = {
+  sanitizePreset,
+  hasThemeFields,
+  themePart,
   findInstall,
   paths,
   checkHealth,
@@ -947,6 +1030,7 @@ module.exports = {
   readResolution,
   isGameRunning,
   GAME_EXE,
+  GAME_WINDOW_EXE,
   TASKLIST_ARGS,
   tasklistSaysRunning,
   PROXY_THEME,

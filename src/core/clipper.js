@@ -61,7 +61,7 @@ function trimFromEndS(run, savedAt) {
 // costs no quality. Cuts land on the nearest keyframe, which is why PAD_START_S
 // exists at all.
 function ffmpegArgs(input, output, fromEndS) {
-  return ['-hide_banner', '-loglevel', 'error', '-y', '-sseof', `-${fromEndS}`, '-i', input, '-c', 'copy', '-movflags', '+faststart', output]
+  return ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-sseof', `-${fromEndS}`, '-i', input, '-c', 'copy', '-movflags', '+faststart', output]
 }
 
 // ---- OBS WebSocket v5 --------------------------------------------------------------
@@ -81,14 +81,20 @@ function obsConnect({ host, port, password }, { onEvent = () => {}, onClose = ()
   return new Promise((resolve, reject) => {
     let ws
     try {
-      ws = new WebSocket(`ws://${host}:${port}`)
+      // The subprotocol obs-websocket documents, and OBS 30 echoes it (verified
+      // 2026-10-18). Without it, a non-OBS server on the port that sends one
+      // unasked trips an uncaught throw in Node's WebSocket.
+      ws = new WebSocket(`ws://${host}:${port}`, 'obswebsocket.json')
     } catch (e) {
       return reject(e)
     }
     const pending = new Map()
     let ready = false
     let nextId = 1
+    // something on the port that never says Hello would leave this pending forever
+    const helloTimer = setTimeout(() => fail("OBS didn't answer"), 10_000)
     const fail = (msg) => {
+      clearTimeout(helloTimer)
       if (!ready) reject(new Error(msg))
       try {
         ws.close()
@@ -111,6 +117,7 @@ function obsConnect({ host, port, password }, { onEvent = () => {}, onClose = ()
         ws.send(JSON.stringify({ op: OP.IDENTIFY, d: id }))
       } else if (msg.op === OP.IDENTIFIED) {
         ready = true
+        clearTimeout(helloTimer)
         resolve({
           request(type, data) {
             const requestId = String(nextId++)
@@ -131,6 +138,7 @@ function obsConnect({ host, port, password }, { onEvent = () => {}, onClose = ()
       } else if (msg.op === OP.EVENT) onEvent(d.eventType, d.eventData || {})
     })
     ws.addEventListener('close', (ev) => {
+      clearTimeout(helloTimer)
       for (const p of pending.values()) p.rej(new Error('OBS disconnected'))
       pending.clear()
       // 4009 = authentication failed (OBS's WebSocketCloseCode)
