@@ -75,6 +75,17 @@ else {
   info('core:test passed')
 }
 
+// ---- the bundled ffmpeg ------------------------------------------------------
+// Before the push and the release: a missing pin used to die only after both,
+// leaving an empty live release as /latest. And before anything is built: electron-builder bundles vendor/ffmpeg/, and a
+// release without it would ship an autoclipper that can't trim.
+step('Fetching the bundled ffmpeg')
+try {
+  info(require('./fetch-ffmpeg').fetchFfmpeg({ check: dryRun }))
+} catch (e) {
+  die(e.message)
+}
+
 // ---- push --------------------------------------------------------------------
 step('Pushing the commit and tag')
 if (dryRun) info('would run: git push origin HEAD --follow-tags')
@@ -100,16 +111,6 @@ if (existing.ok) {
     run('gh', args, { stdio: 'inherit' })
     info(`created ${tag}`)
   }
-}
-
-// ---- the bundled ffmpeg ------------------------------------------------------
-// Before anything is built: electron-builder bundles vendor/ffmpeg/, and a
-// release without it would ship an autoclipper that can't trim.
-step('Fetching the bundled ffmpeg')
-try {
-  info(require('./fetch-ffmpeg').fetchFfmpeg({ check: dryRun }))
-} catch (e) {
-  die(e.message)
 }
 
 // ---- build + upload ----------------------------------------------------------

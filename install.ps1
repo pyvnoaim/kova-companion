@@ -65,6 +65,26 @@ function Get-FileWithProgress([string]$url, [string]$path) {
   } finally {
     $out.Dispose(); $in.Dispose(); $resp.Dispose()
   }
+  if ($total -gt 0 -and $done -ne $total) { throw "The download stopped early ($done of $total bytes)." }
+}
+
+# The hash the release publishes for this installer: GitHub's own per-asset
+# digest when the API has one, else the sha512 electron-builder writes into
+# latest.yml. Both come from the release itself - this catches a corrupt,
+# truncated or swapped download, not a compromised repo.
+function Test-Installer($release, $asset, [string]$path) {
+  if ($asset.digest -match '^sha256:([0-9a-f]{64})$') {
+    return (Get-FileHash $path -Algorithm SHA256).Hash -eq $Matches[1]
+  }
+  $yml = $release.assets | Where-Object { $_.name -eq 'latest.yml' } | Select-Object -First 1
+  if (-not $yml) { throw 'The release publishes no checksum for its installer.' }
+  $text = Invoke-RestMethod $yml.browser_download_url -Headers @{ 'User-Agent' = 'kova-companion-install' }
+  if ($text -notmatch '(?m)^sha512:\s*(\S+)') { throw 'latest.yml has no sha512.' }
+  $want = $Matches[1]
+  $sha = [Security.Cryptography.SHA512]::Create()
+  $fs = [IO.File]::OpenRead($path)
+  try { $got = [Convert]::ToBase64String($sha.ComputeHash($fs)) } finally { $fs.Dispose(); $sha.Dispose() }
+  return $got -eq $want
 }
 
 try {
@@ -78,7 +98,10 @@ try {
   $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{
     'User-Agent' = 'kova-companion-install'
   }
-  $asset = $release.assets | Where-Object { $_.name -like '*.exe' } | Select-Object -First 1
+  # the setup exe by name first (kova-companion-setup-x.y.z.exe); older releases
+  # named it KovaPresets-Setup-x.y.z.exe
+  $asset = @($release.assets | Where-Object { $_.name -like 'kova-companion-setup-*.exe' }) +
+    @($release.assets | Where-Object { $_.name -like '*.exe' }) | Select-Object -First 1
   if (-not $asset) { throw "The latest release ($($release.tag_name)) has no installer attached." }
   Write-Done "Latest release: $($release.tag_name)"
 
@@ -93,6 +116,12 @@ try {
   $installer = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetFileName($asset.name))
   Get-FileWithProgress $asset.browser_download_url $installer
   Write-Done ("Downloaded {0} ({1:N0} MB)" -f $asset.name, ($asset.size / 1MB))
+
+  Write-Step 'Checking the download...'
+  if (-not (Test-Installer $release $asset $installer)) {
+    throw "The downloaded installer doesn't match the checksum the release publishes. Nothing was run."
+  }
+  Write-Done 'Checksum matches the release'
 
   $proc = Start-Process -FilePath $installer -PassThru
   # Without -Wait, ExitCode reads $null unless the handle is cached first.

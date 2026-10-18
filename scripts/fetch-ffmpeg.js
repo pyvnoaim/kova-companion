@@ -33,7 +33,8 @@ function fetchFfmpeg({ check = false } = {}) {
   if (ok()) return 'already in place'
   if (check) throw new Error(`vendor/ffmpeg is missing or doesn't match the pinned sha256`)
   fs.mkdirSync(out, { recursive: true })
-  const args = ['release', 'download', pin.release, '--dir', out, '--clobber']
+  // -R: never depend on the cwd's remote, or a repo rename's redirect
+  const args = ['release', 'download', pin.release, '-R', 'pyvnoaim/kovapresets', '--dir', out, '--clobber']
   for (const f of FILES) args.push('--pattern', f)
   execFileSync('gh', args, { cwd: root, stdio: 'inherit' })
   if (!ok()) {
