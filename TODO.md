@@ -1,6 +1,9 @@
 # TODO
 
-## Now: test everything built on 2026-10-14 (nothing has run for real yet)
+## Now: test everything built on 2026-10-14
+
+First pass on Windows with a real KovaaK's + OBS ran 2026-10-18 (notes inline). Not yet run
+against a real kova, so everything signed-in is still open.
 
 **1. Locally, app against a local kova** (Docker on): in `~/dev/kova`
 `npm run db:up && npm run db:migrate && npm run dev`, then here
@@ -15,11 +18,14 @@
 **2. On Windows, with KovaaK's:**
 
 - [ ] The redesign: presets apply, HUD editor opens / saves / leaving with unsaved edits asks,
-      the window drags by its title bar.
+      the window drags by its title bar. *2026-10-18: apply closed / mid-game / quit flush,
+      restore, HUD save queued to quit, Restart game, re-enter all verified against the real
+      files. Window drag and the unsaved-edits prompt not tried by hand.*
 - [ ] **Live setup on stream:** change sens / crosshair / FOV in game; the overlay follows
-      within seconds. The FOV row appears (scanned by key name - if it never shows, KovaaK's
-      keeps FOV elsewhere). Find the real **sound cooldown** key and pin it in
-      `core/companion.js` (it matches anything named *cooldown* today).
+      within seconds. *Keys verified 2026-10-18 and pinned in `core/companion.js`: FOV is
+      `EFloatSettingId::FOV`, FOV scale `FOVScaleString` (the old /FOV/ scan hit
+      `FILMSCustomFOV` = "hML"), sound cooldown `HitSoundCooldown` in weaponsettings.ini
+      (there's also `ShootSoundCooldown`).* The overlay itself still needs a real kova.
       The slide only shows while KovaaK's runs: it should appear within seconds of starting the
       game, stay through a restart-game, and go about 90s after closing it.
 - [ ] **Rank progress** (built 2026-10-14). Signed in, with KovaaK's linked on kova: your real
@@ -27,17 +33,21 @@
       pops Kovi (tray: a Windows notification). Play session: does each scenario launch, and
       does it move on after 3 finished runs?
 - [ ] **Sessions** (built 2026-10-14). First open on a real stats folder: how long does it take?
-      Close KovaaK's after a few runs: the "Open recap" toast (tray: notification, click opens
-      the recap). Restart-game must NOT trigger a recap.
-- [ ] **Re-enter targets the loaded scenario** (session.sav, built 2026-10-14). Load a scenario,
-      DON'T finish a run, apply a preset with "Re-enter scenario": it must reload that one, not
-      the previous. If it still jumps to the old one, check where session.sav actually lives
-      (install `Saved/SaveGames` or `%LOCALAPPDATA%`) and that `ScenarioName` is in it.
+      *~0.5s cold on 2,644 runs (2026-10-18); a loading placeholder covers it.* Close KovaaK's
+      after a few runs: the "Open recap" toast (tray: notification, click opens the recap).
+      Restart-game must NOT trigger a recap.
+- [x] **Re-enter targets the loaded scenario** (session.sav, built 2026-10-14). *Verified
+      2026-10-18: session.sav lives only in `%LOCALAPPDATA%\FPSAimTrainer\Saved\SaveGames`
+      (none in the install), is rewritten at launch, and re-enter parks then lands back on the
+      loaded scenario within ~2s.*
 
-- [ ] **Autoclipper** (built 2026-10-14). OBS open with its WebSocket server on: Connected, and
-      the replay buffer switches on. Set a PB: a clip lands in the clips folder (trimmed if
-      ffmpeg is installed, else OBS's whole buffer), the Kovi notice shows, Play opens it.
-      Check the cut starts just before the run (keyframes can shift it a second or two).
+- [x] **Autoclipper** (built 2026-10-14). *Verified 2026-10-18 on OBS 30.2.3: auth (and a wrong
+      password stops retrying), the replay buffer switches on, a finished run (Every run mode)
+      lands trimmed in the clips folder ~4s later (59.6s run -> 67.7s clip, keyframe-aligned),
+      Play opens the in-app player. OBS echoes the `obswebsocket.json` subprotocol. Windows'
+      own player shows OBS's 1080p120 mkv at ~1 fps - the file is fine, hence the in-app player.*
+      Still open: a PB / rank-up mode clip, and the "replay buffer disabled" message (OBS only
+      rebuilds outputs on its own Settings > Apply, so it can't be faked over the socket).
 - [ ] **Update from an installed 2.0.1** to the renamed build: presets and settings survive
       (userData is pinned to the old folder), auto-update works, no stray old shortcut.
 
@@ -57,8 +67,16 @@
       `npm run release` refuses to build until that's done.
 - [ ] Trim a **real OBS clip** (H.264 / HEVC / AV1): local tests only had MPEG-4 video, since
       there's no H.264 encoder without GPL code. mp4, fragmented mp4, mkv and mpegts all cut
-      to the second with the 2.3 MB build.
+      to the second with the 2.3 MB build. *2026-10-18: H.264/AAC in mkv from OBS (AMD AMF)
+      trims cleanly with the app's args - but with a system ffmpeg, not the 2.3 MB build,
+      which isn't pinned yet. HEVC / AV1 untried.*
 
+- [x] **The 3 theme keys presets didn't carry** (`setEnemyBodyColorAsAttackColor`, `teamGlowUpHead`,
+      `teamGlowUpBody`). Verified in game 2026-10-18 with snopal-clarity: they map to
+      `EnemyAttacksColoredByBody` (boolean) and `TeamGlowUpHead/Body` (float), and the game writes
+      PrimaryUserSettings.json the moment a theme is picked, not only on exit. THEME_FIELDS rows added.
+- [ ] **HUD editor units above 1080p**: hud.js sizes are "1080p px" while the canvas uses the
+      real resolution. Move a window to the right edge at 1440p/4K and read its x in UI.json.
 - [ ] **Kovi everywhere** (built 2026-10-14): empty / error states, the "KovaaK's is closed" note on
       Presets, a PB pop-up for every PB (Settings > Alerts), the tray icon awake / asleep. On kova:
       the overlay's opt-in "Kovi on new PBs" pop flag - check it on the card and moments layouts
@@ -158,8 +176,8 @@ Works from local files:
       live while you play. Thresholds come from kova.
 - [x] **Session recap** (built 2026-10-14 as Sessions: yearly calendar, every day, recap on close). Runs, PBs and time played when you close KovaaK's.
 - ~~**Discord rich presence.**~~ Dropped 2026-10-14: KovaaK's has it built in now.
-- [x] **Autoclipper** (built 2026-10-14; trims with a bundled 2.3 MB cut-only ffmpeg, scripts/build-ffmpeg.sh). Clip on PB via obs-websocket, with a threshold (percentile,
-      playlist, rank achieved, or just every PB). Cheapest new tool here: watching
+- [x] **Autoclipper** (built 2026-10-14; trims with a bundled 2.3 MB cut-only ffmpeg, scripts/build-ffmpeg.sh). Clip on PB via obs-websocket, with a threshold: every PB,
+      rank-ups, or every run (percentile / playlist modes were planned, never built). Cheapest new tool here: watching
       the stats folder for a PB is the same `fs.watch` the overlay already runs, so
       obs-websocket is the only genuinely new piece.
 - [ ] **Chat commands** - parked 2026-10-14. Drafted on the shell canvas ("Chat commands" section):
@@ -180,6 +198,9 @@ Works from local files:
 ## Loose ends
 
 - [ ] List kova companion on kova's `/projects` directory.
-- [ ] Two mid-session applies, the second with the same theme: its queue replaces the first's and
-      drops `proxyName`, so the overlay and (after quit) the in-game menu fall back to the launch-time
-      theme name. Colours are right. Fix: carry `proxyName` forward when an apply doesn't change the theme.
+- [x] Two mid-session applies, the second with the same theme: its queue replaced the first's and
+      dropped `proxyName`. Fixed 2026-10-18 (carried forward while on the proxy), covered by
+      `selftest-main.js`.
+- [ ] Review leftovers (2026-10-18): tournament reminders repeat after an app restart (in-memory
+      set); snipe polling keeps running while alerts are off; no re-poll after sleep/resume;
+      install.ps1 doesn't verify the installer it downloads.
