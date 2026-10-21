@@ -9,3 +9,6 @@ out/
 # scripts/fetch-ffmpeg.js at release time - a binary never goes into git
 vendor/
 build/ffmpeg-src/
+# local-only: Claude Code settings and the working TODO
+.claude/
+TODO.md

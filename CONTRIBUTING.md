@@ -68,5 +68,5 @@ Add a name there if you introduce another one.
 | `src/renderer/` | The UI |
 | `scripts/release.js` | Release driver — see README |
 
-`TODO.md` is the roadmap; the README explains how releases work and why the
+The README explains how releases work and why the
 release script does things in the order it does.

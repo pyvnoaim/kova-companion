@@ -1,0 +1,9 @@
+Bundled fonts (src/renderer/fonts/) are licensed separately under the
+SIL Open Font License 1.1, which permits bundling and redistribution:
+
+  - Fraunces    - https://github.com/undercasetype/Fraunces
+  - Geist Sans  - https://github.com/vercel/geist-font
+  - Geist Mono  - https://github.com/vercel/geist-font
+
+KovaaK's / FPSAimTrainer is a trademark of its respective owner. This project
+is an unofficial community tool and is not affiliated with or endorsed by it.
