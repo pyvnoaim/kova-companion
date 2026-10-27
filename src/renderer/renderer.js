@@ -1599,7 +1599,12 @@ async function loadSettingsUi() {
   for (const el of document.querySelectorAll('input[name="apply-mode"]'))
     el.checked = el.value === mode
   setApplyModeSummary(mode)
+  $('#launch-startup').setAttribute('aria-checked', s.launchOnStartup)
 }
+$('#launch-startup').addEventListener('click', async () => {
+  const btn = $('#launch-startup')
+  btn.setAttribute('aria-checked', await window.kova.setLaunchOnStartup(btn.getAttribute('aria-checked') !== 'true'))
+})
 // One line under the segmented control: what the chosen mode leaves for you to do.
 const APPLY_MODE_HELP = {
   manual: 'Only writes the files. Re-enter your scenario yourself, sens and DPI on next launch.',

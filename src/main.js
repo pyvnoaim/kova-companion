@@ -1103,7 +1103,21 @@ ipcMain.handle('win:reload', () => win?.webContents.reload())
 
 // applyMode goes out RESOLVED (the stored value may be absent pre-migration, see
 // applyMode()) so the renderer never re-implements the autoRestart fallback.
-ipcMain.handle('settings:get', () => ({ ...loadSettings(), applyMode: applyMode() }))
+ipcMain.handle('settings:get', () => ({ ...loadSettings(), applyMode: applyMode(), launchOnStartup: launchOnStartup() }))
+
+// Start with Windows. The login item itself is the truth, not settings.json, so
+// turning it off in Task Manager's Startup list shows up here too (Windows matches
+// the entry by path + args, hence the args on the read as well).
+const LOGIN_ITEM = { args: ['--hidden'] } // boot into the tray, not a window on the desktop
+function launchOnStartup() {
+  const li = app.getLoginItemSettings(LOGIN_ITEM)
+  return process.platform === 'win32' ? li.executableWillLaunchAtLogin : li.openAtLogin
+}
+ipcMain.handle('startup:set', (_e, on) => {
+  // registering the dev electron.exe as a login item would be nonsense
+  if (app.isPackaged) app.setLoginItemSettings({ ...LOGIN_ITEM, openAtLogin: !!on, enabled: !!on })
+  return launchOnStartup()
+})
 
 // Only the keys the renderer owns; everything else (clip folder, OBS host/port)
 // has its own validating handler, and a raw merge would bypass it.
@@ -2415,11 +2429,7 @@ app.whenReady().then(() => {
   })
   // legacy storage from the removed per-apply undo system
   fs.rmSync(path.join(userData(), 'backups'), { recursive: true, force: true })
-  // The "Start with Windows" setting is gone, but anyone who had it on still has
-  // a registered login item - and with the toggle removed there'd be no way to
-  // turn it off. Clear it once, and drop the dead setting key.
-  if (app.isPackaged && app.getLoginItemSettings().openAtLogin)
-    app.setLoginItemSettings({ openAtLogin: false })
+  // the old settings.json flag; the login item is the truth now (launchOnStartup)
   const s = loadSettings()
   if ('launchOnStartup' in s) {
     delete s.launchOnStartup
