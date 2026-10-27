@@ -73,7 +73,7 @@
       "shortcutName": "kova companion",
       "uninstallDisplayName": "kova companion",
       "deleteAppDataOnUninstall": false,
-      "artifactName": "kova-companion-setup-${version}.${ext}"
+      "artifactName": "kova-companion-setup.${ext}"
     }
   }
 }
