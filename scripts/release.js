@@ -22,7 +22,7 @@
 //
 // Release notes are read from release-notes/<version>.md when present, else
 // GitHub generates them from the commits.
-const { execFileSync } = require('node:child_process')
+const { execFileSync, execSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -32,6 +32,9 @@ const dryRun = argv.includes('--dry-run')
 
 const run = (cmd, args, opts = {}) =>
   execFileSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts })
+// npm/npx are .cmd shims on Windows, which only start through a shell - and a
+// shell with an args array is DEP0190. Fixed command lines only, nothing to escape.
+const runShell = (cmdline, opts = {}) => execSync(cmdline, { cwd: root, encoding: 'utf8', ...opts })
 // for commands whose failure is a legitimate answer ("does this exist?")
 const tryRun = (cmd, args) => {
   try {
@@ -84,7 +87,7 @@ info('authenticated, token available for electron-builder')
 step('Checking lint and tests')
 for (const script of ['lint', 'core:test']) {
   try {
-    run('npm', ['run', script], { stdio: ['ignore', 'ignore', 'inherit'], shell: process.platform === 'win32' })
+    runShell(`npm run ${script}`, { stdio: ['ignore', 'ignore', 'inherit'] })
   } catch {
     die(`npm run ${script} failed - run it on its own to see why`)
   }
@@ -137,10 +140,9 @@ if (dryRun) {
   console.log('\n\x1b[32mdry run complete - every check passed\x1b[0m\n')
   process.exit(0)
 }
-run('npx', ['electron-builder', '--publish', 'always'], {
+runShell('npx electron-builder --publish always', {
   stdio: 'inherit',
   env: { ...process.env, GH_TOKEN: token.out },
-  shell: process.platform === 'win32', // npx is a .cmd shim on Windows
 })
 
 // ---- verify what actually landed --------------------------------------------
