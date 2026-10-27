@@ -790,7 +790,7 @@ function activePresetId(presets) {
   }
 }
 
-const TRAY_PRESETS = 12
+const TRAY_PRESETS = 8
 function trayMenu() {
   const presets = store.load(userData())
   const activeId = activePresetId(presets)
