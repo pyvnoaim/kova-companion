@@ -25,8 +25,8 @@ itself. From then on the app updates itself, so you only ever run this once.
 
 Prefer clicking? Download the **kova companion setup exe** from the
 [releases page](https://github.com/pyvnoaim/kovapresets/releases/latest) instead.
-Windows SmartScreen will warn you the first time you run a downloaded copy,
-because the installer isn't code-signed yet, click **More info → Run anyway**.
+Windows SmartScreen may warn you the first time you run a downloaded copy,
+because the installer isn't code-signed yet. Click **More info → Run anyway**.
 
 ## What it does
 

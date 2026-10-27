@@ -98,9 +98,10 @@ try {
   $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{
     'User-Agent' = 'kova-companion-install'
   }
-  # the setup exe by name first (kova-companion-setup-x.y.z.exe); older releases
-  # named it KovaPresets-Setup-x.y.z.exe
-  $asset = @($release.assets | Where-Object { $_.name -like 'kova-companion-setup-*.exe' }) +
+  # the setup exe by name first (kova-companion-setup.exe since 2.1.1,
+  # kova-companion-setup-x.y.z.exe in 2.1.0); older releases named it
+  # KovaPresets-Setup-x.y.z.exe
+  $asset = @($release.assets | Where-Object { $_.name -like 'kova-companion-setup*.exe' }) +
     @($release.assets | Where-Object { $_.name -like '*.exe' }) | Select-Object -First 1
   if (-not $asset) { throw "The latest release ($($release.tag_name)) has no installer attached." }
   Write-Done "Latest release: $($release.tag_name)"
