@@ -60,7 +60,8 @@ FLAGS=(
 )
 # ${CROSS[@]+...}: an empty array is "unbound" under set -u in bash 3.2 (macOS)
 ./configure "${FLAGS[@]}" ${CROSS[@]+"${CROSS[@]}"}
-make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)" ffmpeg
+# the make target carries the exe suffix: under mingw it's ffmpeg.exe, not ffmpeg
+make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)" "$BIN"
 cp "$BIN" "$OUT/$BIN"
 cp COPYING.LGPLv2.1 "$OUT/LICENSE.md"
 cat > "$OUT/SOURCE.md" <<EOF
