@@ -47,7 +47,8 @@ Around them:
 
 - **Global hotkeys** — bind a preset to a key combo that works while you're in game.
 - **Live theme swapping** — select the bundled `!KovaPreset` theme in game once, and
-  theme changes apply without restarting.
+  theme changes apply without restarting: switch to any other theme and back to
+  `!KovaPreset` to load the new one.
 - **One-tap scenario re-enter** — reloads your current scenario through Steam so a
   change goes live immediately, optionally automatic after a hotkey apply.
 - **HUD editor** — drag your in-game HUD windows on a virtual screen with snapping,
@@ -103,9 +104,11 @@ kova companion reads and writes those same files, nothing more:
 Two of those reload at different times, which is why the table above lists
 different "applies" moments. `weaponsettings.ini` is re-read whenever a scenario
 loads. `PrimaryUserSettings.json` is only read when the game launches, but the
-**selected theme's** definition file is re-read every time you open the in game
-settings screen. kova companion uses that: it owns one proxy theme file called
-`!KovaPreset`, and applying a preset rewrites it, so themes can swap live.
+**selected theme's** definition file is re-read whenever you select it in the
+theme menu. kova companion uses that: it owns one proxy theme file called
+`!KovaPreset`, and applying a preset rewrites it. Switch to any other theme and
+back to `!KovaPreset` and the new theme loads, no restart needed. Just opening
+the settings screen is not enough.
 
 That scenario-entry reload does **not** cover sens, despite `weaponsettings.ini`
 holding `OverrideSens`/`HorizontalSens`. Writing those externally has no effect

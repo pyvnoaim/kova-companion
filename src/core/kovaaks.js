@@ -570,12 +570,16 @@ function themeToPrimary(t) {
 }
 
 // ---- live theme via the proxy theme file --------------------------------------
-// Discovery (2026-07-20): the game re-reads the CURRENTLY SELECTED theme's
-// definition file from disk when the in-game menu is opened, and applies it
-// live. (The settings file, by contrast, is only read at launch.) So the app
-// owns one proxy theme file, "KovaPreset", the user selects once in-game;
-// applying a preset rewrites that file's contents and the next menu-open makes
-// it live. No memory writes, no UI automation.
+// The game re-reads a theme's definition file from disk when that theme is
+// SELECTED in the theme menu, and applies it live. (The settings file, by
+// contrast, is only read at launch.) So the app owns one proxy theme file,
+// "KovaPreset", the user selects once in-game; applying a preset rewrites that
+// file's contents, and switching to any other theme and back makes it live. No
+// memory writes, no UI automation.
+// Just opening the menu does NOT re-read it - re-tested 2026-10-27 (issue #1):
+// a mid-session rewrite stayed invisible through Settings and the Theme section
+// and showed only after a reselect. The 2026-07-20 note claiming menu-open was
+// enough doesn't hold, so never tell the user "open settings" for the theme.
 // '!' sorts before digits and letters, so the proxy sits at the top of the
 // game's alphabetically-ordered theme list.
 const PROXY_THEME = '!KovaPreset'
@@ -595,7 +599,7 @@ const PROXY_THEME = '!KovaPreset'
 //     lost. The two must always move together.
 //   - CurrentThemeName lives in PrimaryUserSettings, which the game owns in
 //     memory and rewrites from it on any settings interaction - including the
-//     menu-open that triggers live theme swap. An external edit while the game
+//     theme reselect that triggers live theme swap. An external edit while the game
 //     runs is therefore erased at the worst possible moment (measured: written
 //     19:05:28, clobbered back 19:05:46 on settings-open).
 //
@@ -678,9 +682,10 @@ function readProxyName(install) {
 }
 
 // Write the preset's theme into the proxy theme file. Contents are safe to write
-// at any time - the game only reads them on menu-open (and at launch when it's
-// the selected theme). `name` is NOT: pass the existing readProxyName() while
-// the game runs, and the new one only when it's closed.
+// at any time - the game only reads them when the theme is selected in the
+// menu, and at launch when it's the selected theme. `name` is NOT: pass the
+// existing readProxyName() while the game runs, and the new one only when it's
+// closed.
 function writeProxyTheme(install, primary, name) {
   const t = themeFileFromPrimary(primary, name)
   const p = paths(install)
@@ -798,7 +803,7 @@ function primaryDiffers(install, primary) {
 
 // ---- writing ------------------------------------------------------------------
 // Every game-file write goes through writeFileAtomic (core/fsatomic) - the game
-// re-reads these files at its own moments (the proxy on menu-open,
+// re-reads these files at its own moments (the proxy on theme select,
 // weaponsettings on scenario entry), so a torn write can be read as truncated
 // JSON/INI.
 
@@ -955,7 +960,7 @@ function checkHealth(install, { probeWrites = true } = {}) {
       'proxy',
       'Live theme swapping',
       'ok',
-      `The ${PROXY_THEME} theme is selected in-game - theme presets apply live.`
+      `The ${PROXY_THEME} theme is selected in-game - after a mid-session apply, switch to another theme and back to load it.`
     )
   else if (fs.existsSync(proxyFile))
     add(

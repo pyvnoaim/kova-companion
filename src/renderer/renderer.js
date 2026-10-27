@@ -389,8 +389,8 @@ function showHelp() {
       <h3>How it works</h3>
       <ul>
         <li><b>Presets</b> save your KovaaK's look &amp; sound: crosshair, theme, sounds, sens. Applying writes the game's own settings files.</li>
-        <li><b>Going live:</b> crosshair and combat sounds apply on the next scenario load. Theme: open the game's settings once. Sens, DPI and the rest land when the game quits or starts.</li>
-        <li><b>Once:</b> select the theme starting <b>!KovaPreset</b> in-game so themes can swap live.</li>
+        <li><b>Going live:</b> crosshair and combat sounds apply on the next scenario load. Theme: in the game's theme menu, switch to any other theme and back to <b>!KovaPreset</b>. Sens, DPI and the rest land when the game quits or starts.</li>
+        <li><b>Once:</b> select the theme starting <b>!KovaPreset</b> in-game so themes can swap without a restart.</li>
         <li><b>Re-enter now</b> reloads your scenario via Steam so changes kick in. The run auto-starts, press your reset bind when ready.</li>
         <li><b>Hotkeys</b> (bolt icon) work even in-game, and stay alive in the tray when you close the window.</li>
         <li><b>Restore original</b> reverts everything back to before kova companion.</li>
@@ -539,8 +539,9 @@ function showWizard() {
       <div class="wiz-body">
         <h3>Arm live theme swapping</h3>
         <p>Themes normally only load when the game starts. kova companion gets around that with one
-        proxy theme, <b>!KovaPreset</b>, that you select in-game <b>once</b> - after that, theme
-        presets apply live when you open the settings screen.</p>
+        proxy theme, <b>!KovaPreset</b>, that you select in-game <b>once</b> - after that, a theme
+        preset applied mid-session loads when you switch to any other theme and back to
+        <b>!KovaPreset</b>.</p>
         <p><b>Do this:</b> create the proxy below, then in KovaaK's go to
         <b>Settings → Game → Theme</b> and pick the entry starting <b>!KovaPreset</b> (it sorts to
         the top; once a preset is applied it also names the theme it mirrors).</p>
@@ -876,7 +877,7 @@ function renderActive(active) {
   $('#active').innerHTML = `
     <div class="stat">
       <div class="value">${esc(theme.name) || '-'}</div>
-      <div class="label">Theme${theme.liveSwap ? ' <span class="ok-text" data-tip="The game runs the !KovaPreset proxy theme, so theme changes apply without restarting - just open settings once">live swap on</span>' : ''}</div>
+      <div class="label">Theme${theme.liveSwap ? ' <span class="ok-text" data-tip="The game runs the !KovaPreset proxy theme, so theme changes apply without restarting - switch to another theme and back to load one">live swap on</span>' : ''}</div>
     </div>
     <div class="stat">
       <div class="value">${esc(noExt(w.CrosshairFile)) || '-'}</div>
@@ -1207,7 +1208,12 @@ async function applyPreset(preset) {
     const live = weaponChanged ? (reentered ? 'Crosshair and sounds are live.' : 'Applied. Re-enter to load it.') : ''
     const lead = `${failed}${live}${restartNote}`.trim()
     if (theme === 'live') {
-      toast(`${lead} Open KovaaK's settings once for the theme.`.trim(), failed ? 'warn' : 'ok', 6500, reenter)
+      toast(
+        `${lead} For the theme, switch to another theme and back to <b>!KovaPreset</b> in KovaaK's.`.trim(),
+        failed ? 'warn' : 'ok',
+        6500,
+        reenter
+      )
     } else if (theme === 'arming') {
       toast(
         `${lead} Pick the <b>!KovaPreset</b> theme once in KovaaK's.`.trim(),
