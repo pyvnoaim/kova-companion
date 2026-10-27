@@ -878,7 +878,7 @@ function canWriteDir(dir, probeWrites) {
       fs.accessSync(dir, fs.constants.W_OK)
       return true
     }
-    const probe = path.join(dir, '.kovapresets-writetest.tmp')
+    const probe = path.join(dir, '.kova-companion-writetest.tmp')
     fs.writeFileSync(probe, '')
     fs.unlinkSync(probe)
     return true

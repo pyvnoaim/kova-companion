@@ -29,13 +29,25 @@ const log = logger.log
 
 const STEAM_APP_ID = '824270' // KovaaK's
 
-// Pinned to the pre-rename folder. Electron derives userData from productName,
-// so the KovaPresets -> kova companion rename would otherwise point every
-// installed copy at an empty folder: presets, settings and the restore baseline
-// gone. Must run before anything reads the path, the single-instance lock
-// included (it keys on userData, which also keeps an old and new build from
-// running side by side).
-app.setPath('userData', path.join(app.getPath('appData'), 'KovaPresets'))
+// %APPDATA%\kova-companion. Every released build up to 2.0.1 kept its data in
+// %APPDATA%\kovapreset (from the old package name), so the first start moves
+// that folder over. If the move fails (a file held open), this run keeps using
+// the old folder and the next start tries again - presets, settings and the
+// restore baseline must never come up empty. Not "KovaPresets": only `npm start`
+// runs ever wrote there. build/installer.nsh deletes these same folders.
+// Must run before anything reads the path, the single-instance lock included
+// (it keys on userData, which also keeps an old and new build from running
+// side by side).
+{
+  const dataDir = path.join(app.getPath('appData'), 'kova-companion')
+  const legacyDir = path.join(app.getPath('appData'), 'kovapreset')
+  if (!fs.existsSync(dataDir) && fs.existsSync(legacyDir)) {
+    try {
+      fs.renameSync(legacyDir, dataDir)
+    } catch {}
+  }
+  app.setPath('userData', !fs.existsSync(dataDir) && fs.existsSync(legacyDir) ? legacyDir : dataDir)
+}
 
 // One instance only: a second `npm start` focuses the existing window instead
 // of silently stacking another copy in the tray (the X hides to tray, so

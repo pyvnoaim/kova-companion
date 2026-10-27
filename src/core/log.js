@@ -27,7 +27,7 @@ function rotateIfNeeded() {
 function init(dir) {
   try {
     fs.mkdirSync(dir, { recursive: true })
-    file = path.join(dir, 'kovapresets.log')
+    file = path.join(dir, 'kova-companion.log')
     rotateIfNeeded()
   } catch {
     file = null
