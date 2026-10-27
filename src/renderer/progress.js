@@ -12,7 +12,8 @@ let progressDetail = null // { name, days } while a scenario's score graph is op
 const RUNS_EACH = 3 // keep in step with main.js: runs per scenario in a session
 
 function oddsText(r) {
-  if (!r.next) return { text: 'Top rank', good: false }
+  // past the last rank this difficulty has: the row's right side says so
+  if (!r.next) return { text: '', good: false }
   // no estimate yet (under 5 runs): the list says so once, not on every row
   if (r.odds == null) return { text: '', good: false }
   if (r.odds >= 0.5) return { text: `Likely to reach ${r.next.name}`, good: true }
@@ -226,10 +227,10 @@ async function renderProgress() {
       const o = oddsText(r)
       return `<div class="pg-row">
         <span class="pg-name"><button class="pg-title pg-open" data-n="${esc(r.name)}">${esc(short(r.name))}</button>${o.text ? `<span class="pg-odds${o.good ? ' ok-text' : ''}">${esc(o.text)}</span>` : ''}</span>
-        <span class="pg-rank"><span class="pg-dot" style="background:${esc(r.rank?.color || '#71717a')}"></span>${esc(r.rank?.name || 'Unranked')}</span>
-        <span class="num pg-best">${fmt(r.best)}</span>
+        <span class="pg-rank">${r.best == null ? '<span class="setting-desc">Not played yet</span>' : `${rankMark(r.rank, 18)}${esc(r.rank?.name || 'Unranked')}`}</span>
+        <span class="num pg-best">${r.best == null ? '' : fmt(r.best)}</span>
         <span class="pg-bar"><span style="width:${Math.max(4, Math.round(r.pct * 100))}%"></span></span>
-        <span class="pg-left">${r.next ? `<span class="num">${fmt(r.toNext)}</span> to ${esc(r.next.name)}` : 'Maxed'}</span>
+        <span class="pg-left">${r.next && r.best == null ? `${esc(r.next.name)} at <span class="num">${fmt(r.next.score)}</span>` : r.next ? `<span class="num">${fmt(r.toNext)}</span> to ${esc(r.next.name)}` : r.best == null ? '' : bench.difficulty ? `Top of ${esc(bench.difficulty)}` : 'Top rank reached'}</span>
         <button class="pg-play" data-n="${esc(r.name)}" aria-label="Play ${esc(r.name)}">Play</button>
       </div>`
     })

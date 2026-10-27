@@ -31,6 +31,7 @@ module.exports = [
         kova: 'readonly', // the preload bridge
         $: 'readonly',
         esc: 'readonly',
+        rankMark: 'readonly',
         toast: 'readonly',
         appConfirm: 'readonly',
         openModal: 'readonly',

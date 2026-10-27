@@ -81,6 +81,13 @@ async function renderTournaments() {
         <span class="num tn-state tn-place">${t.place && t.place <= 3 ? koviChampion(18, 30) : ''}${t.place ? `${t.tied ? 'T-' : ''}${ordinal(Number(t.place))} of ${Number(t.of)}` : '-'}</span></div>`
     )
     .join('')
+  // Nothing at all: kova's empty state, not a page of empty sections. With past
+  // results the Upcoming section stays and says so in a line.
+  if (!liveCard && !upRows && !pastRows) {
+    el.innerHTML =
+      head + emptyState('idle', 'No tournaments yet', 'Register for one on kova and it shows up here, with a reminder when check-in opens.')
+    return
+  }
   el.innerHTML = `${head}
     ${liveCard}
     <section class="block"><div class="section-head"><h2>Upcoming</h2></div>

@@ -25,20 +25,24 @@ async function renderKova() {
     const u = s.user
     card.innerHTML = `
       <button class="kova-me" data-tip="Open your kova profile">
-        <span class="kc-av">${esc((u?.name || '?').trim().charAt(0).toUpperCase())}</span>
+        <span class="kc-av">${
+          u?.avatar?.startsWith('data:image/')
+            ? `<img src="${esc(u.avatar)}" alt="">`
+            : esc((u?.name || '?').trim().charAt(0).toUpperCase())
+        }</span>
         <span class="kc-text">
           <span class="kc-title">${esc(u?.name || 'Signed in')}</span>
-          <span class="kc-desc">${
+          ${
             u?.rank
-              ? `<span class="kc-rank"><span class="pg-dot" style="background:${esc(u.rank.color || '#71717a')}"></span>${esc(u.rank.name)} · ${esc(u.rank.benchmark)}</span>`
-              : 'No benchmark rank yet'
-          }</span>
+              ? `<span class="kc-rank">${rankMark(u.rank, 16)}<span class="kc-rank-name" style="color:${esc(u.rank.color || 'inherit')}">${esc(u.rank.name)}</span></span>`
+              : '<span class="kc-desc">No benchmark rank yet</span>'
+          }
         </span>
       </button>`
   } else {
     card.innerHTML = `
       <span><span class="kc-title">Connect kova</span><br>
-      <span class="kc-desc">Show your live setup on your kova stream overlay.</span></span>
+      <span class="kc-desc">Your ranks, tournaments and team challenge, and your live setup on stream.</span></span>
       <button class="solid kova-signin">Sign in</button>`
   }
 
@@ -107,7 +111,11 @@ for (const slot of ['#kova-card', '#kova-rows', '#alert-rows'])
     else if (btn.classList.contains('kova-pbs')) await window.kova.kovaSetPbPopups(btn.getAttribute('aria-checked') !== 'true')
     else if (btn.classList.contains('kova-snipes'))
       await window.kova.kovaSetSnipes(btn.getAttribute('aria-checked') !== 'true')
-    else if (btn.classList.contains('kova-me')) return window.kova.kovaOpen('profile')
+    else if (btn.classList.contains('kova-me')) {
+      // the browser takes focus; coming back must not paint the keyboard ring
+      btn.blur()
+      return window.kova.kovaOpen('profile')
+    }
     else if (btn.classList.contains('kova-overlay')) return window.kova.kovaOpen('overlay')
     renderKova()
   })

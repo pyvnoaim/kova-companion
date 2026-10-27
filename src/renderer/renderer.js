@@ -45,6 +45,13 @@ function esc(s) {
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]
   )
 }
+// A benchmark rank's mark: kova's own rank art when it has some (main hands it
+// over as a data: URL), else a dot in the rank's colour.
+function rankMark(rank, size = 16) {
+  if (rank?.iconData?.startsWith('data:image/'))
+    return `<img class="rank-icon" src="${esc(rank.iconData)}" width="${size}" height="${size}" alt="">`
+  return `<span class="pg-dot" style="background:${esc(rank?.color || '#71717a')}"></span>`
+}
 const ICON = {
   pencil:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
@@ -82,7 +89,7 @@ function hexToColor(hex) {
 }
 
 // ---- shared by the page scripts (progress.js, sessions.js, clips.js) ----------
-/* exported fmt, shortScenario, keyOf, dateOf, dayLabel, fmtDur, clock, MONTHS, emptyState */
+/* exported rankMark, fmt, shortScenario, keyOf, dateOf, dayLabel, fmtDur, clock, MONTHS, emptyState */
 // "VT Pasu Intermediate S5" reads as "Pasu" inside its own playlist (and in the
 // rank-up pop-up, where the full name wrapped onto two lines)
 const DIFFICULTY_WORDS = 'novice|intermediate|advanced|easier|easy|medium|harder|hard|expert'
@@ -603,10 +610,19 @@ function showWizard() {
 // into a window nobody is looking at, expires after 60s, and the one-shot latch
 // means it never comes back. That's how 1.0.5 sat downloaded-but-unmentioned.
 let updateOfferedFor = null
+// After an update the same button offers what changed, until it's used - the
+// "Updated" toast alone can be replaced by another one at startup.
+let notesOpened = false
 function maybeOfferUpdate() {
   const v = current?.updateReady
   const btn = $('#update-btn')
-  btn.classList.toggle('hidden', !v)
+  const notes = !v && !!current?.updatedFrom && !notesOpened
+  btn.classList.toggle('hidden', !v && !notes)
+  if (notes) {
+    btn.textContent = "What's new"
+    btn.dataset.tip = `What changed in ${current.appVersion}`
+    return
+  }
   if (!v) return
   btn.textContent = 'Restart to update'
   btn.dataset.tip = `Version ${v} is downloaded - restart to install it`
@@ -618,7 +634,27 @@ function maybeOfferUpdate() {
     run: () => window.kova.installUpdate(),
   })
 }
-$('#update-btn').addEventListener('click', () => window.kova.installUpdate())
+$('#update-btn').addEventListener('click', () => {
+  if (current?.updateReady) return window.kova.installUpdate()
+  notesOpened = true
+  maybeOfferUpdate()
+  window.kova.updateNotes()
+})
+// The first start after an update says so, once, with the way to what changed.
+let updatedShown = false
+function maybeShowUpdated() {
+  if (updatedShown || !current?.updatedFrom || document.visibilityState !== 'visible') return
+  updatedShown = true
+  toast(`Updated to ${esc(current.appVersion)}.`, 'ok', 12000, {
+    label: "What's new",
+    run: () => {
+      notesOpened = true
+      maybeOfferUpdate()
+      window.kova.updateNotes()
+    },
+  })
+}
+document.addEventListener('visibilitychange', maybeShowUpdated)
 // Coming back to the window is the moment the toast can finally land.
 document.addEventListener('visibilitychange', maybeOfferUpdate)
 
@@ -1210,6 +1246,7 @@ async function refresh(rescan) {
     runHealth({ autoOpen: true })
   }
   maybeOfferUpdate()
+  maybeShowUpdated()
   const pill = $('#game-pill')
   $('#app-version').textContent = current.appVersion || ''
   $('#install-path').textContent = current.install ? `Found through Steam: ${current.install}` : 'Not found through Steam.'

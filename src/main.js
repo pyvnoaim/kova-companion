@@ -897,6 +897,7 @@ ipcMain.handle('state', (_e, opts) => {
     // fields go stale the moment a preset is applied live.
     proxyPrimary: k.readProxyPrimary(install),
     updateReady,
+    updatedFrom,
     options: listOptionsCached(install, opts?.rescan),
     presets: loadPresetsMigrated(install),
     pending: !!pending,
@@ -1195,14 +1196,76 @@ async function refreshKovaUser() {
   if (!res?.ok) return // offline: keep the cached user, retry on the next start
   const me = await res.json().catch(() => null) // an error page, not JSON
   if (!me?.username) return
+  const prev = kovaUser
   kovaUser = {
     username: me.username,
     name: me.name,
     // relative upload paths come back as-is, so anchor them to kova
     avatarUrl: me.avatarUrl ? new URL(me.avatarUrl, KOVA_URL).href : null,
-    rank: me.rank?.name ? { name: me.rank.name, benchmark: me.rank.benchmark, color: me.rank.color } : null,
+    rank: me.rank?.name
+      ? { name: me.rank.name, benchmark: me.rank.benchmark, color: me.rank.color, icon: me.rank.icon || null }
+      : null,
   }
+  // Same pictures as last time: keep them, so a refresh neither flickers back
+  // to the initial and the dot nor downloads the avatar again.
+  if (prev?.avatar && prev.avatarUrl === kovaUser.avatarUrl) kovaUser.avatar = prev.avatar
+  if (prev?.rank?.iconData && kovaUser.rank && prev.rank.icon === kovaUser.rank.icon)
+    kovaUser.rank.iconData = prev.rank.iconData
   kovaNotify()
+  if (kovaUser.avatar && (kovaUser.rank?.iconData || !kovaUser.rank?.icon)) return
+  // The page may load images only from the app itself (its CSP), so the avatar
+  // and rank art come in here and go over as data: URLs. A missing or odd one
+  // keeps the initial / the colour dot.
+  const mine = kovaUser
+  const [avatar, rankIcon] = await Promise.all([
+    mine.avatar ? null : kovaImage(mine.avatarUrl),
+    mine.rank?.iconData ? null : rankIconData(mine.rank?.icon),
+  ])
+  // a newer refresh (or a sign-out) replaced the user meanwhile: it fetches its own
+  if (kovaUser !== mine || !(avatar || rankIcon)) return
+  if (avatar) mine.avatar = avatar
+  if (rankIcon && mine.rank) mine.rank.iconData = rankIcon
+  kovaNotify()
+}
+
+// kova's rank art is a dozen small files shared by every scenario row: fetch
+// each once per run.
+const rankIcons = new Map()
+function rankIconData(icon) {
+  if (!icon) return Promise.resolve(null)
+  const url = new URL(icon, KOVA_URL).href
+  if (!rankIcons.has(url))
+    rankIcons.set(
+      url,
+      // a failed fetch (offline at start, a timeout) is retried on the next load
+      kovaImage(url).then((data) => (data || rankIcons.delete(url), data))
+    )
+  return rankIcons.get(url)
+}
+
+// An image from kova or the CDN it hands out, as a data: URL - or null. Only
+// https (or kova itself in dev), only real image types, never more than 1 MB.
+const IMAGE_MAX = 1024 * 1024
+async function kovaImage(url) {
+  if (!url) return null
+  try {
+    const u = new URL(url)
+    if (u.protocol !== 'https:' && u.origin !== new URL(KOVA_URL).origin) return null
+    const res = await fetch(u, { signal: AbortSignal.timeout(10000) })
+    const type = (res.headers.get('content-type') || '').split(';')[0].trim()
+    if (!res.ok || !/^image\/(png|jpeg|webp|gif)$/.test(type)) {
+      log('kova image skipped', res.status, type || 'no type')
+      return null
+    }
+    // the avatar URL is the user's own: refuse a huge one before reading it
+    if (Number(res.headers.get('content-length')) > IMAGE_MAX) return null
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (buf.length > IMAGE_MAX) return null
+    return `data:${type};base64,${buf.toString('base64')}`
+  } catch (e) {
+    log('kova image failed', e?.message)
+    return null
+  }
 }
 
 // ---- sync: watch the game's settings, post the setup when it changed ----
@@ -1476,6 +1539,11 @@ async function loadProgress({ source, difficulty } = {}) {
     bench.scenarios,
     install ? progress.localRuns(install, bench.scenarios.map((s) => s.name)) : new Map()
   )
+  // Rank art per rank name, fetched in parallel (each distinct file once), and
+  // put on the rows' own rank only: thresholds would carry every icon per scenario.
+  const iconOf = new Map(bench.scenarios.flatMap((s) => (s.thresholds || []).map((t) => [t.rank, t.icon])))
+  const art = new Map(await Promise.all([...iconOf].map(async ([rank, icon]) => [rank, await rankIconData(icon)])))
+  for (const r of rows) if (r.rank) r.rank.iconData = art.get(r.rank.name) || null
   startStatsWatch()
   return {
     ok: true,
@@ -2250,6 +2318,18 @@ ipcMain.handle('hud:save', (_e, uiRaw) => {
 // update metadata, so a dev run skips all of it.
 const UPDATE_POLL_MS = 6 * 60 * 60 * 1000 // the app can sit in the tray for days
 let updateReady = null // version string once an update is downloaded and staged
+// Set on the first start after an update, so the window can say what changed.
+// 2.0.1 never wrote lastVersion: an onboarded user without one is updating too.
+let updatedFrom = null
+function noteVersion() {
+  const s = loadSettings()
+  const prev = s.lastVersion ?? (s.onboarded ? 'earlier' : null)
+  if (prev && prev !== app.getVersion()) updatedFrom = prev
+  if (s.lastVersion !== app.getVersion()) {
+    s.lastVersion = app.getVersion()
+    saveSettings(s)
+  }
+}
 
 function initAutoUpdate() {
   if (!app.isPackaged) return
@@ -2280,10 +2360,14 @@ function initAutoUpdate() {
 function installUpdate() {
   if (!updateReady) return { ok: false }
   quitting = true // the window's close handler otherwise just hides to the tray
-  require('electron-updater').autoUpdater.quitAndInstall()
+  // silent: no installer window flashing up mid-restart; then start the new version
+  require('electron-updater').autoUpdater.quitAndInstall(true, true)
   return { ok: true }
 }
 ipcMain.handle('update:install', () => installUpdate())
+ipcMain.handle('update:notes', () =>
+  shell.openExternal(`https://github.com/pyvnoaim/kovapresets/releases/tag/v${app.getVersion()}`)
+)
 
 app.whenReady().then(() => {
   logger.init(userData())
@@ -2294,6 +2378,7 @@ app.whenReady().then(() => {
   log('---- app start', app.getVersion(), app.isPackaged ? 'packaged' : 'dev', '----')
   createWindow()
   createTray()
+  noteVersion()
   initAutoUpdate()
   flushPendingIfPossible()
   registerHotkeys()

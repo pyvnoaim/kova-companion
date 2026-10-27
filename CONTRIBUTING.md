@@ -44,9 +44,10 @@ point — it's what catches a `require` that wandered into the renderer, where i
 would be undefined at runtime. There's no formatter, so lint failures are real
 findings, not style noise.
 
-`renderer.js` and `hud.js` are two `<script>` tags sharing one global scope, so
-the handful of names that cross between them are listed in `eslint.config.js`.
-Add a name there if you introduce another one.
+The renderer is one `<script>` tag per page (`renderer.js` first, then `hud.js`,
+`kova.js`, `progress.js` and the rest) sharing one global scope, so the names that
+cross between them are listed in `eslint.config.js`. Add a name there if you
+introduce another one. A new page gets a new file.
 
 ## Pull requests
 
@@ -63,10 +64,15 @@ Add a name there if you introduce another one.
 | `src/core/kovaaks.js` | Pure Node file logic: detect / read / diff / apply |
 | `src/core/presets.js` | The local preset store |
 | `src/core/fsatomic.js` | Atomic writes |
-| `src/main.js` | Electron main, owns filesystem and game access |
+| `src/core/history.js`, `progress.js` | The stats folder: sessions, bests, rank odds |
+| `src/core/clipper.js` | Autoclipper trimming (ffmpeg arguments) |
+| `src/core/companion.js` | The stream overlay's setup payload |
+| `src/main.js` | Electron main, owns filesystem, game, OBS and kova access |
 | `src/preload.js` | The entire renderer↔main IPC surface |
-| `src/renderer/` | The UI |
+| `src/renderer/` | The UI, one script per page |
 | `scripts/release.js` | Release driver — see README |
+| `scripts/draw-icons.js` | Draws `app.ico` and the tray icons |
+| `scripts/build-ffmpeg.sh` | The autoclipper's cut-only ffmpeg |
 
 The README explains how releases work and why the
 release script does things in the order it does.

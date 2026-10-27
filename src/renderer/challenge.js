@@ -45,9 +45,9 @@ async function renderChallenge() {
     .map((p) => {
       const place = p.place == null ? "Didn't play" : `${ordinal(Number(p.place))} of ${Number(p.of)}`
       return `<div class="tn-row"><span class="pg-name"><span class="pg-title">${esc(p.scenario)}</span>
-          <span class="pg-odds">${esc(p.week)} · won by ${esc(p.winner)}</span></span>
+          <span class="pg-odds">${esc(p.week)} · ${Number(p.place) === 1 ? 'you won' : `won by ${esc(p.winner)}`}</span></span>
         <span class="tn-state tn-place${p.place === 1 ? ' ch-won' : p.place == null ? ' setting-desc' : ''}">${p.place === 1 ? koviChampion(18, 30) : ''}${place}</span>
-        <span class="num ch-score">${p.score == null ? '-' : esc(fmt(p.score))}</span></div>`
+        <span class="num ch-score">${p.score == null ? '' : esc(fmt(p.score))}</span></div>`
     })
     .join('')
   el.innerHTML = `${head}${tabs}
@@ -62,9 +62,9 @@ async function renderChallenge() {
         <button class="primary ch-play">Play</button>
         <button class="ch-open">Open on kova</button>
       </div>
-      ${rows || '<p class="pg-note ch-none">Nobody has played it yet. Be first.</p>'}
+      ${rows || '<p class="pg-note ch-none">Nobody on the board yet. kova updates it every hour.</p>'}
     </section>
-    <p class="pg-note ch-foot">kova updates the board every hour.</p>
+    ${rows ? '<p class="pg-note ch-foot">kova updates the board every hour.</p>' : ''}
     ${past ? `<section class="block"><div class="section-head"><h2>Past weeks</h2></div><div class="pg-list">${past}</div></section>` : ''}`
 }
 

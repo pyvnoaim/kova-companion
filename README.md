@@ -1,8 +1,10 @@
 # kova companion
 
-Save your KovaaK's **crosshair, theme, sounds and sens** as presets and
-switch between them with one click, or a global hotkey, without alt-tabbing out of
-a run.
+A companion app for KovaaK's. Save your **crosshair, theme, sounds and sens** as
+presets and switch with one click or a global hotkey, lay out your HUD, see how far
+each benchmark scenario is from your next rank, look back over every session, and
+let OBS clip your PBs. Sign in with [kova](https://kova.page) and it also shows
+your tournaments, your team's weekly challenge and your live setup on stream.
 
 Windows only (KovaaK's is a Windows game). Free and open source.
 
@@ -28,6 +30,8 @@ because the installer isn't code-signed yet, click **More info → Run anyway**.
 
 ## What it does
 
+### Presets
+
 A preset is a snapshot of how your game looks and sounds. Applying one rewrites
 only the matching keys in KovaaK's own settings files, leaving everything else
 untouched.
@@ -39,7 +43,7 @@ untouched.
 | Scenario sens override + DPI | Sens on scenario load, DPI on next launch |
 | Theme (walls, floor, sky, enemy colors) | Live, once you open the game's settings screen |
 
-Beyond switching presets:
+Around them:
 
 - **Global hotkeys** — bind a preset to a key combo that works while you're in game.
 - **Live theme swapping** — select the bundled `!KovaPreset` theme in game once, and
@@ -52,8 +56,36 @@ Beyond switching presets:
 - **Import / export** — share a preset as a `.kovapreset.json` file.
 - **Restore original setup** — puts every setting back to how it was before
   kova companion ever touched it.
-- **Tray resident** — closing the window keeps hotkeys alive in the tray, and it can
-  start with Windows.
+- **Tray resident** — closing the window keeps hotkeys alive in the tray. Kovi, the
+  tray icon, is awake while KovaaK's runs.
+
+### Progress and stream
+
+These read KovaaK's own stats folder, so they work without an account:
+
+- **Sessions** — a calendar of every day you played, with runs, PBs and time per
+  day, and a recap when you close KovaaK's.
+- **Autoclipper** — connects to OBS (obs-websocket) and saves a clip of a run from
+  its replay buffer: on every PB, on rank-ups, or every run, trimmed to the run.
+  Clips play in the app. Trimming uses a small cut-only, LGPL ffmpeg that ships
+  with the app (`scripts/build-ffmpeg.sh`).
+- **PB pop-ups** — Kovi cheers when a run beats your best.
+
+### With a kova account
+
+Sign-in happens in your browser on kova.page, so the app never sees your Discord
+login. Local runs drive what the app shows, but it **never writes PBs or ranks to
+kova**: those come from KovaaK's verified scores.
+
+- **Rank progress** — every scenario of your benchmark, how far you are from the
+  next rank, the odds of getting there, a score graph, and a rank-up session that
+  launches the scenarios you're closest on.
+- **Tournaments** — your upcoming matches, a reminder when check-in opens, and one
+  click to launch the match scenario. Check-in is always your click.
+- **Weekly challenge** — your team's scenario of the week, standings and past weeks.
+- **Snipe alerts** — when someone you follow beats your best on a scenario you play.
+- **Live setup on stream** — while KovaaK's runs, your kova stream overlay shows
+  your sens, FOV, crosshair and sounds.
 
 ## How it works
 
@@ -105,10 +137,14 @@ npm run dist       # build the Windows installer into dist/
 
 - `src/core/kovaaks.js` — pure Node file logic (detect / read / diff / apply), no Electron.
 - `src/core/presets.js` — the local preset store.
-- `src/main.js` — Electron main; owns all filesystem and game access.
+- `src/core/history.js`, `progress.js` — the stats folder: sessions, bests, rank odds.
+- `src/core/clipper.js`, `companion.js` — clip trimming, the overlay's setup payload.
+- `src/main.js` — Electron main; owns all filesystem, game, OBS and kova access.
 - `src/preload.js` — the entire renderer to main IPC surface.
-- `src/renderer/*` — the UI, plain HTML/CSS/JS with no build step.
+- `src/renderer/*` — the UI, plain HTML/CSS/JS with no build step, one script per page.
 - `scripts/release.js` — the release driver (see below).
+- `scripts/draw-icons.js` — draws `app.ico` and the tray icons (`npx electron scripts/draw-icons.js`).
+- `scripts/build-ffmpeg.sh` — the autoclipper's ffmpeg, pinned in `scripts/ffmpeg-pin.json`.
 
 ### Releasing
 
@@ -119,8 +155,8 @@ npm run release -- --dry-run       # run every check and change nothing
 ```
 
 Write `release-notes/<version>.md` first if you want written notes; otherwise
-GitHub generates them from the commits. The app shows the release body in its
-update prompt, so it's worth filling in.
+GitHub generates them from the commits. After an update the app offers a
+"What's new" link to that release, so it's worth filling in.
 
 `npm run release` deliberately creates the GitHub release **before** building.
 electron-builder's publisher starts one uploader per artifact and each tries to

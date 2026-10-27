@@ -165,8 +165,9 @@ async function renderObsSettings() {
     : c.obs.status === 'error'
       ? esc(c.obs.error || "Couldn't reach OBS")
       : `${esc(c.host)}:${c.port} · for the autoclipper`
+  // under the Settings page's own "OBS" heading, so the row names what it is
   $('#obs-rows').innerHTML = `<div class="setting-row">
-      <div class="setting-text"><span class="setting-label">OBS</span><span class="setting-desc">${desc}</span></div>
+      <div class="setting-text"><span class="setting-label">Connection</span><span class="setting-desc">${desc}</span></div>
       ${c.on ? obsStatus(c) : ''}
       <button class="obs-change">Change</button>
     </div>`

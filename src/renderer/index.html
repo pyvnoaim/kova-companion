@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';" />
     <title>kova companion</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -250,10 +250,8 @@
             </div>
           </div>
           <p class="hud-note">
-            Windows snap to screen center, edges, other windows and equal spacing. Shift-click to
-            select several for align and distribute. Arrow keys nudge 1px (Shift = 10px). Drag the
-            corner handle of a selected window to calibrate its real size (double-click to reset).
-            The layout applies when KovaaK's is closed, or queues for its next quit.
+            Shift-click to select several · Arrows nudge, Shift for 10px · Corner handle sets a
+            window's real size
           </p>
         </section>
 

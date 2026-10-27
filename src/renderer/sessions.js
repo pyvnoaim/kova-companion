@@ -116,10 +116,10 @@ function recapHtml(d) {
     )
     .join('')}</div></section>`
   return `
+    <button class="back-link ss-back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Sessions</button>
     <div class="page-head">
       <div class="page-title"><h1>${esc(dayLabel(d.key))}</h1>
         <p class="lead">${d.sessions} session${d.sessions === 1 ? '' : 's'}, ${esc(clock(d.first))} to ${esc(clock(d.last))}</p></div>
-      <div class="page-actions"><button class="ss-back">Back to sessions</button></div>
     </div>
     <section class="ss-strip">${d.pbs.length ? KOVI_HAPPY : KOVI_IDLE}<div class="ss-stats">${statsRow}</div></section>
     ${pbs}${played}`
