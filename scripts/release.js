@@ -9,7 +9,11 @@
 // broken auto-update on both v1.0.4 and v1.0.5.
 //
 // Creating the release up front removes the race: the publishers find it and
-// only ever upload into it.
+// only ever upload into it. It's created as a DRAFT and published only once
+// the assets are verified: a live release with nothing in it becomes /latest
+// and every updater checks it, and electron-builder silently skips uploading
+// into a live release older than 2 hours - so a failed run couldn't be
+// finished by re-running. A draft it always uploads into, at any age.
 //
 // Usage:
 //   npm version patch                 # makes the "1.0.6" commit + v1.0.6 tag
@@ -53,6 +57,14 @@ const dirty = run('git', ['status', '--porcelain']).trim()
 if (dirty) die(`working tree is dirty - commit or stash first:\n${dirty}`)
 info('clean')
 
+step('Checking the branch')
+const branch = run('git', ['rev-parse', '--abbrev-ref', 'HEAD']).trim()
+if (branch !== 'main') die(`on "${branch}" - releases are cut from main.`)
+run('git', ['fetch', 'origin', '--quiet'])
+const behind = tryRun('git', ['rev-list', '--count', 'HEAD..@{u}']).out
+if (behind && behind !== '0') die(`main is ${behind} commit(s) behind origin - pull, then re-tag on top.`)
+info('main, up to date with origin')
+
 step('Checking the tag')
 if (!tryRun('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`]).ok)
   die(`tag ${tag} does not exist. Run "npm version patch" (or minor/major) first - it makes the version commit and the tag together.`)
@@ -68,11 +80,15 @@ const token = tryRun('gh', ['auth', 'token'])
 if (!token.ok || !token.out) die('gh is not authenticated - run "gh auth login"')
 info('authenticated, token available for electron-builder')
 
-step('Checking tests')
-if (dryRun) info('skipped in a dry run')
-else {
-  run('npm', ['run', 'core:test'], { stdio: ['ignore', 'ignore', 'inherit'], shell: process.platform === 'win32' })
-  info('core:test passed')
+// what CI runs; neither writes anything, so a dry run runs them too
+step('Checking lint and tests')
+for (const script of ['lint', 'core:test']) {
+  try {
+    run('npm', ['run', script], { stdio: ['ignore', 'ignore', 'inherit'], shell: process.platform === 'win32' })
+  } catch {
+    die(`npm run ${script} failed - run it on its own to see why`)
+  }
+  info(`${script} passed`)
 }
 
 // ---- the bundled ffmpeg ------------------------------------------------------
@@ -96,20 +112,21 @@ else {
 
 // ---- create the release BEFORE building (this is the whole point) ------------
 step('Ensuring the GitHub release exists')
-const existing = tryRun('gh', ['release', 'view', tag, '--json', 'tagName'])
+const existing = tryRun('gh', ['release', 'view', tag, '--json', 'isDraft'])
 if (existing.ok) {
-  info(`${tag} already exists - electron-builder will upload into it`)
+  const isDraft = JSON.parse(existing.out).isDraft
+  info(`${tag} already exists${isDraft ? ' as a draft' : ' and is LIVE'} - electron-builder will upload into it`)
 } else {
   const notesFile = path.join(root, 'release-notes', `${version}.md`)
   const hasNotes = fs.existsSync(notesFile)
-  const args = ['release', 'create', tag, '--title', version]
+  const args = ['release', 'create', tag, '--title', version, '--draft', '--verify-tag']
   if (hasNotes) args.push('--notes-file', notesFile)
   else args.push('--generate-notes')
   info(hasNotes ? `notes from release-notes/${version}.md` : 'notes auto-generated from commits')
   if (dryRun) info(`would run: gh ${args.join(' ')}`)
   else {
     run('gh', args, { stdio: 'inherit' })
-    info(`created ${tag}`)
+    info(`created ${tag} as a draft`)
   }
 }
 
@@ -137,5 +154,21 @@ const missing = ['latest.yml', '.exe', '.exe.blockmap'].filter(
   (want) => !names.some((n) => (want.startsWith('.') ? n.endsWith(want) : n === want))
 )
 if (missing.length)
-  die(`release ${tag} is missing ${missing.join(', ')} - auto-update will be broken. Re-run "npm run release" to finish the upload.`)
+  die(`release ${tag} is missing ${missing.join(', ')} - auto-update would be broken. Re-run "npm run release" to finish the upload.`)
+
+// latest.yml is what every installed copy reads: it has to name THIS version,
+// and the installer it points at has to be one of the uploaded assets.
+const latestYml = tryRun('gh', ['release', 'download', tag, '--pattern', 'latest.yml', '--output', '-'])
+if (!latestYml.ok) die(`couldn't download latest.yml from ${tag} to check it`)
+const ymlVersion = latestYml.out.match(/^version:\s*(\S+)/m)?.[1]
+const ymlPath = latestYml.out.match(/^path:\s*(\S+)/m)?.[1]
+if (ymlVersion !== version) die(`latest.yml says version ${ymlVersion}, not ${version} - auto-update would offer the wrong build.`)
+if (!names.includes(ymlPath)) die(`latest.yml points at ${ymlPath}, which isn't among the uploaded assets.`)
+info(`latest.yml -> ${ymlVersion}, ${ymlPath}`)
+
+step('Publishing the release')
+if (JSON.parse(tryRun('gh', ['release', 'view', tag, '--json', 'isDraft']).out || '{}').isDraft) {
+  run('gh', ['release', 'edit', tag, '--draft=false', '--latest'], { stdio: 'inherit' })
+  info('live - installed copies will pick it up on their next update check')
+} else info('already live')
 console.log(`\n\x1b[32m${version} released\x1b[0m  https://github.com/pyvnoaim/kovapresets/releases/tag/${tag}\n`)
