@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pyvnoaim/kovapresets.git"
+    "url": "https://github.com/pyvnoaim/kova-companion.git"
   },
   "main": "src/main.js",
   "engines": {
@@ -41,7 +41,7 @@
       {
         "provider": "github",
         "owner": "pyvnoaim",
-        "repo": "kovapresets",
+        "repo": "kova-companion",
         "releaseType": "release"
       }
     ],

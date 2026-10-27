@@ -173,4 +173,4 @@ if (JSON.parse(tryRun('gh', ['release', 'view', tag, '--json', 'isDraft']).out |
   run('gh', ['release', 'edit', tag, '--draft=false', '--latest'], { stdio: 'inherit' })
   info('live - installed copies will pick it up on their next update check')
 } else info('already live')
-console.log(`\n\x1b[32m${version} released\x1b[0m  https://github.com/pyvnoaim/kovapresets/releases/tag/${tag}\n`)
+console.log(`\n\x1b[32m${version} released\x1b[0m  https://github.com/pyvnoaim/kova-companion/releases/tag/${tag}\n`)

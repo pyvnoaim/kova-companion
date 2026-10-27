@@ -70,7 +70,7 @@ cat > "$OUT/SOURCE.md" <<EOF
 FFmpeg ${VERSION}, unmodified source: ${URL}
 (sha256 ${SHA256}), licensed under the LGPL v2.1 - see LICENSE.md.
 
-Built by scripts/build-ffmpeg.sh in https://github.com/pyvnoaim/kovapresets
+Built by scripts/build-ffmpeg.sh in https://github.com/pyvnoaim/kova-companion
 with these configure flags, nothing else:
 
     ${FLAGS[*]}

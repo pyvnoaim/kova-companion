@@ -15,7 +15,7 @@ $prevProgress = $ProgressPreference
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$repo = 'pyvnoaim/kovapresets'
+$repo = 'pyvnoaim/kova-companion'
 $installer = $null
 
 # Built from char codes so this file stays pure ASCII - PowerShell 5.1 reads

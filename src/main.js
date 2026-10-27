@@ -2366,7 +2366,7 @@ function installUpdate() {
 }
 ipcMain.handle('update:install', () => installUpdate())
 ipcMain.handle('update:notes', () =>
-  shell.openExternal(`https://github.com/pyvnoaim/kovapresets/releases/tag/v${app.getVersion()}`)
+  shell.openExternal(`https://github.com/pyvnoaim/kova-companion/releases/tag/v${app.getVersion()}`)
 )
 
 app.whenReady().then(() => {

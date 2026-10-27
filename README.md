@@ -24,7 +24,7 @@ installs for your user only, and it finds your KovaaK's install through Steam by
 itself. From then on the app updates itself, so you only ever run this once.
 
 Prefer clicking? Download the **kova companion setup exe** from the
-[releases page](https://github.com/pyvnoaim/kovapresets/releases/latest) instead.
+[releases page](https://github.com/pyvnoaim/kova-companion/releases/latest) instead.
 Windows SmartScreen may warn you the first time you run a downloaded copy,
 because the installer isn't code-signed yet. Click **More info → Run anyway**.
 
