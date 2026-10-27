@@ -42,7 +42,7 @@ async function renderKova() {
   } else {
     card.innerHTML = `
       <span><span class="kc-title">Connect kova</span><br>
-      <span class="kc-desc">Your ranks, tournaments and team challenge, and your live setup on stream.</span></span>
+      <span class="kc-desc">Ranks, tournaments and your stream overlay.</span></span>
       <button class="solid kova-signin">Sign in</button>`
   }
 
