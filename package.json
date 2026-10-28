@@ -19,7 +19,7 @@
     "core:test": "node src/core/selftest.js && node src/core/selftest-main.js",
     "dist": "electron-builder",
     "release": "node scripts/release.js",
-    "release:publish-only": "node scripts/fetch-ffmpeg.js --check && electron-builder --publish always"
+    "release:publish-only": "node scripts/fetch-ffmpeg.js --check && electron-builder --win --publish always"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"

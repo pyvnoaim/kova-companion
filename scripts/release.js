@@ -136,11 +136,12 @@ if (existing.ok) {
 // ---- build + upload ----------------------------------------------------------
 step('Building and uploading')
 if (dryRun) {
-  info('would run: electron-builder --publish always (with GH_TOKEN from gh)')
+  info('would run: electron-builder --win --publish always (with GH_TOKEN from gh)')
   console.log('\n\x1b[32mdry run complete - every check passed\x1b[0m\n')
   process.exit(0)
 }
-runShell('npx electron-builder --publish always', {
+// --win: the app is Windows-only, and without it a Mac builds a Mac app (2.1.2 died that way)
+runShell('npx electron-builder --win --publish always', {
   stdio: 'inherit',
   env: { ...process.env, GH_TOKEN: token.out },
 })
