@@ -83,15 +83,18 @@ function setupPayload(install, queuedProxyName) {
   }
 }
 
-// Snipe alerts: the PBs (from kova's /api/companion/snipes) that beat your
-// local best on the same scenario, each with that best as `mine`. A scenario
-// you've never played isn't a snipe - there's nothing of yours to beat.
+// Snipe alerts: the PBs (from kova's /api/companion/snipes) that beat your best
+// on the same scenario, each with that best as `mine`. Your best is the higher of
+// your local runs and `yours` (KovaaK's leaderboard, via kova), since local stats
+// are lost on a Windows reinstall. A scenario with neither isn't a snipe -
+// there's nothing of yours to beat.
 // `localRuns`: lowercased scenario name -> runs, as progress.localRuns returns.
 function pickSnipes(pbs, localRuns) {
   return pbs.flatMap((p) => {
-    const runs = localRuns.get(p.scenario.toLowerCase())
-    if (!runs?.length) return []
-    const mine = Math.max(...runs.map((r) => r.score))
+    const scores = (localRuns.get(p.scenario.toLowerCase()) || []).map((r) => r.score)
+    if (p.yours != null) scores.push(p.yours)
+    if (!scores.length) return []
+    const mine = Math.max(...scores)
     return p.score > mine ? [{ ...p, mine }] : []
   })
 }

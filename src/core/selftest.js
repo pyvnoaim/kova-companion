@@ -469,10 +469,12 @@ console.log('UI.json validation: ok')
       { id: 'a', scenario: 'Pasu', score: 960 }, // beats 950, matched case-insensitively
       { id: 'b', scenario: 'Pasu', score: 950 }, // a tie isn't a snipe
       { id: 'c', scenario: 'Never Played', score: 1 },
+      { id: 'd', scenario: 'Pasu', score: 970, yours: 980 }, // KovaaK's best beats local: no snipe
+      { id: 'e', scenario: 'Reinstalled', score: 200, yours: 185 }, // no local runs, KovaaK's best counts
     ],
     local
   )
-  assert.deepEqual(snipes.map((s) => [s.id, s.mine]), [['a', 950]])
+  assert.deepEqual(snipes.map((s) => [s.id, s.mine]), [['a', 950], ['e', 185]])
   console.log('snipe picks: ok')
 
   const pr = require('./progress')

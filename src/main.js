@@ -1160,7 +1160,7 @@ function saveKovaToken(token) {
   else fs.rmSync(kovaAuthFile(), { force: true })
 }
 
-async function kovaFetch(pathname, { method = 'GET', body, token = kovaToken } = {}) {
+async function kovaFetch(pathname, { method = 'GET', body, token = kovaToken, timeout = 10000 } = {}) {
   try {
     return await fetch(`${KOVA_URL}${pathname}`, {
       method,
@@ -1169,7 +1169,7 @@ async function kovaFetch(pathname, { method = 'GET', body, token = kovaToken } =
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       body,
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(timeout),
     })
   } catch (e) {
     log('kova request failed', pathname, e?.message)
@@ -1588,22 +1588,35 @@ function sessionStep() {
   win?.webContents.send('progress-changed', {})
 }
 
-function onRunFinished(file, attempt = 0) {
+// Your KovaaK's best on a scenario outside the loaded benchmark (local stats
+// don't survive a reinstall). KovaaK's may already hold the run that just ended,
+// so a best equal to `score` is that run, not an older one.
+async function kovaaksBestBefore(scenario, score) {
+  if (!kovaToken) return null
+  // short: the PB pop-up and clip wait on this, and the replay buffer keeps rolling
+  const res = await kovaFetch(`/api/companion/best?scenario=${encodeURIComponent(scenario)}`, { timeout: 3000 })
+  const best = res?.ok ? (await res.json().catch(() => null))?.best : null
+  // ponytail: a tie with an older PB reads as this run, so it would pop a PB; rare enough
+  return typeof best === 'number' && Math.abs(best - score) >= 0.01 ? best : null
+}
+
+async function onRunFinished(file, attempt = 0) {
   const install = findInstall()
   if (!install) return
   const run = progress.parseRun(path.join(install, 'stats'), file)
   // still being written (no score row yet): try again shortly, a couple of times
   if (!run) {
-    if (attempt < 3) setTimeout(() => onRunFinished(file, attempt + 1), 1500)
+    if (attempt < 3) setTimeout(() => onRunFinished(file, attempt + 1).catch((e) => log('run failed', e.message)), 1500)
     return
   }
   const s = progressBench?.scenarios.find((x) => x.name.toLowerCase() === run.scenario.toLowerCase())
   // The best BEFORE this run: any earlier local run, and kova's verified best
-  // when the scenario is in the loaded benchmark (it can know runs this PC doesn't).
+  // (from the loaded benchmark, else asked for this scenario). It can know runs this PC doesn't.
   const earlier = (progress.localRuns(install, [run.scenario]).get(run.scenario.toLowerCase()) || [])
     .filter((r) => r.ts < run.ts)
     .map((r) => r.score)
-  const bests = [s?.best, ...earlier].filter((v) => v != null)
+  const remote = s ? s.best : await kovaaksBestBefore(run.scenario, run.score).catch(() => null)
+  const bests = [remote, ...earlier].filter((v) => v != null)
   const prevBest = bests.length ? Math.max(...bests) : null
   const crossed = s ? progress.rankUpFrom(s.thresholds, prevBest, run.score) : null
   if (crossed) {
@@ -1642,7 +1655,7 @@ function startStatsWatch() {
       if (!name || seenStats.has(name) || !k.statsFileScenario(name)) return
       seenStats.add(name)
       // the game is still writing it for a moment after the file appears
-      setTimeout(() => onRunFinished(name), 500)
+      setTimeout(() => onRunFinished(name).catch((e) => log('run failed', e.message)), 500)
     })
     statsWatcher.on('error', () => {})
   } catch {
@@ -2190,8 +2203,8 @@ ipcMain.handle('challenge:open', (_e, slug) => {
 
 // ---- snipe alerts --------------------------------------------------------------------
 // PBs set by people you follow (GET /api/companion/snipes), checked against your
-// local best on the same scenario. kova never sees your scores: the comparison
-// happens here, and only a PB that beats yours alerts. The cursor (the last
+// best on the same scenario: the higher of your local runs and the KovaaK's best
+// kova sends along (`yours`). Only a PB that beats it alerts. The cursor (the last
 // row's loggedAt) lives in settings, so a restart doesn't replay old ones; the
 // very first poll only sets it, so signing in doesn't dump a week of alerts.
 const SNIPE_POLL_MS = 5 * 60 * 1000
@@ -2207,7 +2220,9 @@ async function pollSnipes() {
   const fresh = []
   // ponytail: 10 pages of 100 caps a catch-up; past that the rest is old news anyway
   for (let page = 0; page < 10; page++) {
-    const res = await kovaFetch(`/api/companion/snipes${cursor ? `?after=${encodeURIComponent(cursor)}` : ''}`)
+    // `yours` (your KovaaK's best per scenario) costs kova lookups; a baseline never alerts
+    const qs = new URLSearchParams({ ...(cursor && { after: cursor }), ...(!baseline && { yours: '1' }) })
+    const res = await kovaFetch(`/api/companion/snipes${qs.size ? `?${qs}` : ''}`)
     if (res?.status === 401) return kovaForget()
     const data = res?.ok ? await res.json().catch(() => null) : null
     if (!Array.isArray(data?.pbs)) return // offline or rate-limited: same cursor next time
