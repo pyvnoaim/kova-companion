@@ -65,6 +65,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/></svg>
             Weekly challenge
           </button>
+          <button class="nav-item" data-view="snipes">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+            Snipes
+          </button>
         </div>
         <div class="nav-group">
           <span class="nav-label">Stream</span>
@@ -264,6 +268,7 @@
         <!-- TOURNAMENTS: filled by renderTournaments() -->
         <section id="tournaments-view" class="view hidden"></section>
         <section id="challenge-view" class="view hidden"></section>
+        <section id="snipes-view" class="view hidden"></section>
 
         <!-- AUTOCLIPPER: filled by renderClips() -->
         <section id="clips-view" class="view hidden"></section>
@@ -363,5 +368,6 @@
     <script src="clips.js"></script>
     <script src="tournaments.js"></script>
     <script src="challenge.js"></script>
+    <script src="snipes.js"></script>
   </body>
 </html>

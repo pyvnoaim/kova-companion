@@ -137,7 +137,8 @@ renderKova().then(async () => (kovaWasSignedIn = (await window.kova.kovaGet()).s
 // A followed player beat your best: Play jumps straight into that scenario.
 // Kovi's "Sniped" mood (shook: dot eyes, a sweat drop), as on the mascot canvas
 const KOVI_SNIPED = `<svg viewBox="0 0 120 200" width="30" height="50" aria-hidden="true"><ellipse cx="60" cy="190" rx="30" ry="5" fill="#000" opacity="0.5"/><rect x="30" y="16" width="60" height="152" rx="30" fill="#0d0d0f" stroke="#ff9a9a" stroke-width="5"/><ellipse cx="69" cy="38" rx="13" ry="6" fill="#2c2c33" transform="rotate(-24 69 38)"/><circle cx="49" cy="70" r="5" fill="#ff9a9a"/><circle cx="71" cy="70" r="5" fill="#ff9a9a"/><path d="M18 20c-10 14-10 24 0 24s10-10 0-24Z" fill="#fff"/></svg>`
-window.kova.onSnipe((p) =>
+window.kova.onSnipe((p) => {
+  if (view === 'snipes') renderSnipes()
   toast(
     `<span class="cl-toast">${KOVI_SNIPED}<span class="sn-text">
       <b class="tn-toast-title">${esc(p.name)} beat your best</b>
@@ -148,4 +149,4 @@ window.kova.onSnipe((p) =>
     20000,
     { label: 'Play', run: () => window.kova.snipesPlay(p.id) }
   )
-)
+})

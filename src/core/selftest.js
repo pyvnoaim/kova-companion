@@ -477,6 +477,31 @@ console.log('UI.json validation: ok')
   assert.deepEqual(snipes.map((s) => [s.id, s.mine]), [['a', 950], ['e', 185]])
   console.log('snipe picks: ok')
 
+  const merged = c.mergeSnipeLog(
+    [{ id: 'old' }, { id: 'a', score: 1 }],
+    [
+      { id: 'a', score: 960, extra: 'dropped' },
+      { id: 'n', score: 5 },
+    ],
+    3
+  )
+  assert.deepEqual(merged.map((p) => p.id), ['n', 'a', 'old'], 'newest first, a re-sent one moved up, not doubled')
+  assert.equal(merged[1].score, 960, 'the re-sent snipe carries its new numbers')
+  assert.equal('extra' in merged[1], false, 'only the fields the page shows are stored')
+  assert.equal(c.mergeSnipeLog([{ id: 'x' }, { id: 'y' }], [{ id: 'z' }], 2).length, 2, 'capped')
+  console.log('snipe log: ok')
+
+  const answered = c.markSnipedBack(
+    [
+      { id: 'a', scenario: 'Pasu', score: 940 },
+      { id: 'b', scenario: 'Pasu', score: 950 },
+      { id: 'c', scenario: 'Never Played', score: 1 },
+    ],
+    local
+  )
+  assert.deepEqual(answered.map((p) => p.back ?? null), [950, null, null], 'beaten counts, a tie does not')
+  console.log('sniped back: ok')
+
   const pr = require('./progress')
   const DAY = 24 * 60 * 60 * 1000
   const now = 100 * DAY

@@ -2793,6 +2793,11 @@ button.ss-cell:disabled {
 .sn-them {
   color: var(--fg);
 }
+/* Snipes page: a snipe you've answered */
+.sn-back {
+  color: var(--success);
+  font-weight: 500;
+}
 
 /* ---- weekly challenge -------------------------------------------------------------- */
 .ch-tabs {

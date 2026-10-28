@@ -60,6 +60,7 @@ module.exports = [
         renderClips: 'readonly',
         renderTournaments: 'readonly',
         renderChallenge: 'readonly',
+        renderSnipes: 'readonly',
         ordinal: 'readonly', // tournaments.js -> challenge.js
         koviChampion: 'readonly',
       },

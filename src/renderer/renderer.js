@@ -1301,10 +1301,11 @@ function setView(v) {
   $('#clips-view').classList.toggle('hidden', v !== 'clips')
   $('#tournaments-view').classList.toggle('hidden', v !== 'tournaments')
   $('#challenge-view').classList.toggle('hidden', v !== 'challenge')
+  $('#snipes-view').classList.toggle('hidden', v !== 'snipes')
   $('#content').classList.toggle('hidden', v !== 'presets' || !current?.install)
   // both game-file tools need an install; Settings and Rank progress (kova's
   // data) stay reachable without one
-  $('#not-found').classList.toggle('hidden', v === 'settings' || v === 'progress' || v === 'sessions' || v === 'clips' || v === 'tournaments' || v === 'challenge' || !noInstall)
+  $('#not-found').classList.toggle('hidden', v === 'settings' || v === 'progress' || v === 'sessions' || v === 'clips' || v === 'tournaments' || v === 'challenge' || v === 'snipes' || !noInstall)
 }
 async function showView(v) {
   if (v === view) return
@@ -1317,6 +1318,7 @@ async function showView(v) {
   else if (v === 'clips') renderClips()
   else if (v === 'tournaments') renderTournaments()
   else if (v === 'challenge') renderChallenge()
+  else if (v === 'snipes') renderSnipes()
 }
 for (const b of document.querySelectorAll('.nav-item'))
   b.addEventListener('click', () => showView(b.dataset.view))

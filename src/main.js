@@ -1197,7 +1197,7 @@ function kovaForget() {
   challengeData = null
   progressBench = null
   rankSession = null
-  snipesSeen.clear()
+  fs.rmSync(snipeLogFile(), { force: true }) // that account's snipes, not the next one's
   const s = loadSettings()
   delete s.snipeCursor
   saveSettings(s)
@@ -2209,7 +2209,17 @@ ipcMain.handle('challenge:open', (_e, slug) => {
 // very first poll only sets it, so signing in doesn't dump a week of alerts.
 const SNIPE_POLL_MS = 5 * 60 * 1000
 let snipeTimer = null
-const snipesSeen = new Map() // snipe id -> its PB, for the Play button
+// Every snipe alerted on, newest first, for the Snipes page and its Play buttons.
+// ponytail: capped at 200 (mergeSnipeLog), one JSON file rewritten per alert
+const snipeLogFile = () => path.join(userData(), 'snipes.json')
+function loadSnipeLog() {
+  try {
+    const log = JSON.parse(fs.readFileSync(snipeLogFile(), 'utf8'))
+    return Array.isArray(log) ? log : []
+  } catch {
+    return []
+  }
+}
 
 async function pollSnipes() {
   if (!kovaToken) return
@@ -2238,7 +2248,12 @@ async function pollSnipes() {
 
   const snipes = companion.pickSnipes(fresh, progress.localRuns(install, new Set(fresh.map((p) => p.scenario))))
   if (!snipes.length) return
-  for (const p of snipes) snipesSeen.set(p.id, p)
+  const kept = companion.mergeSnipeLog(loadSnipeLog(), snipes)
+  try {
+    fs.writeFileSync(snipeLogFile(), JSON.stringify(kept))
+  } catch (e) {
+    log('snipe log write failed', e.message)
+  }
   // one alert per poll: the newest, with the rest counted
   const p = snipes[snipes.length - 1]
   const more = snipes.length - 1
@@ -2263,8 +2278,17 @@ function scheduleSnipes(ms = SNIPE_POLL_MS) {
 }
 
 ipcMain.handle('snipes:play', (_e, id) => {
-  const p = snipesSeen.get(id)
+  const p = loadSnipeLog().find((x) => x.id === id)
   if (p) shell.openExternal(scenarioLink(p.scenario))
+})
+ipcMain.handle('snipes:list', () => {
+  const logged = kovaToken ? loadSnipeLog() : []
+  const install = findInstall()
+  return {
+    signedIn: !!kovaToken,
+    alertsOn: loadSettings().snipeAlerts,
+    snipes: install ? companion.markSnipedBack(logged, progress.localRuns(install, new Set(logged.map((p) => p.scenario)))) : logged,
+  }
 })
 
 // ---- preset import/export (share a preset as a JSON file) ----------------------

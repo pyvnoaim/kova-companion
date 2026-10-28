@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('kova', {
   kovaSetSnipes: (on) => ipcRenderer.invoke('kova:setSnipes', on),
   kovaSetPbPopups: (on) => ipcRenderer.invoke('kova:setPbPopups', on),
   snipesPlay: (id) => ipcRenderer.invoke('snipes:play', id),
+  snipesList: () => ipcRenderer.invoke('snipes:list'),
   onSnipe: (cb) => ipcRenderer.on('snipe', (_e, info) => cb(info)),
   kovaOpen: (where) => ipcRenderer.invoke('kova:open', where),
   // Fired when sign-in finished, failed, or kova signed the app out.

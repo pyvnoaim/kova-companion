@@ -99,4 +99,26 @@ function pickSnipes(pbs, localRuns) {
   })
 }
 
-module.exports = { setupPayload, themeLabel, scanKey, scanWeaponIni, pickSnipes }
+// The Snipes page's log: this poll's snipes (oldest first, as pickSnipes returns)
+// put on top newest first, a re-sent one moved up rather than doubled, capped.
+function mergeSnipeLog(log, snipes, max = 200) {
+  const ids = new Set(snipes.map((p) => p.id))
+  const fresh = snipes
+    .map(({ id, name, username, scenario, score, mine, setAt }) => ({ id, name, username, scenario, score, mine, setAt }))
+    .reverse()
+  return [...fresh, ...log.filter((p) => !ids.has(p.id))].slice(0, max)
+}
+
+// Snipes you've since answered: `back` is your local best when it now beats the
+// score that sniped you. Your best was under that score when the alert fired, so
+// any local run above it is newer. ponytail: local runs only; a snipe answered on
+// another PC stays open until a run here beats it.
+function markSnipedBack(log, localRuns) {
+  return log.map((p) => {
+    const runs = localRuns.get(String(p.scenario).toLowerCase()) || []
+    const best = runs.length ? Math.max(...runs.map((r) => r.score)) : null
+    return best != null && best > p.score ? { ...p, back: best } : p
+  })
+}
+
+module.exports = { setupPayload, themeLabel, scanKey, scanWeaponIni, pickSnipes, mergeSnipeLog, markSnipedBack }
