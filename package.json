@@ -1,6 +1,6 @@
 {
   "name": "kova-companion",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "private": true,
   "description": "Companion app for KovaaK's: presets, HUD layout and your kova profile, live while the game is open.",
   "author": "pyvnoaim",
