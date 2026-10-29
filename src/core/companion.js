@@ -87,7 +87,8 @@ function setupPayload(install, queuedProxyName) {
 // on the same scenario, each with that best as `mine`. Your best is the higher of
 // your local runs and `yours` (KovaaK's leaderboard, via kova), since local stats
 // are lost on a Windows reinstall. A scenario with neither isn't a snipe -
-// there's nothing of yours to beat.
+// there's nothing of yours to beat. Nor is a PB from someone already above you:
+// `prev` is their previous best there (null when kova doesn't know it).
 // `localRuns`: lowercased scenario name -> runs, as progress.localRuns returns.
 function pickSnipes(pbs, localRuns) {
   return pbs.flatMap((p) => {
@@ -95,7 +96,7 @@ function pickSnipes(pbs, localRuns) {
     if (p.yours != null) scores.push(p.yours)
     if (!scores.length) return []
     const mine = Math.max(...scores)
-    return p.score > mine ? [{ ...p, mine }] : []
+    return p.score > mine && !(p.prev != null && p.prev > mine) ? [{ ...p, mine }] : []
   })
 }
 
