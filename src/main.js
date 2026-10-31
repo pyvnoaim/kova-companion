@@ -1108,7 +1108,12 @@ ipcMain.handle('settings:get', () => ({ ...loadSettings(), applyMode: applyMode(
 // Start with Windows. The login item itself is the truth, not settings.json, so
 // turning it off in Task Manager's Startup list shows up here too (Windows matches
 // the entry by path + args, hence the args on the read as well).
-const LOGIN_ITEM = { args: ['--hidden'] } // boot into the tray, not a window on the desktop
+// boot into the tray, not a window on the desktop. The path is passed quoted on
+// purpose: without it Electron's read parses the bare exe path as a command line,
+// so "...\kova companion\kova companion.exe" splits at the first space, never
+// matches the (quoted) Run entry, and the switch always reads back off. The write
+// strips the quotes and re-adds them, so the entry itself is unchanged.
+const LOGIN_ITEM = { path: `"${process.execPath}"`, args: ['--hidden'] }
 function launchOnStartup() {
   const li = app.getLoginItemSettings(LOGIN_ITEM)
   return process.platform === 'win32' ? li.executableWillLaunchAtLogin : li.openAtLogin
