@@ -1594,15 +1594,23 @@ function sessionStep() {
 }
 
 // Your KovaaK's best on a scenario outside the loaded benchmark (local stats
-// don't survive a reinstall). KovaaK's may already hold the run that just ended,
-// so a best equal to `score` is that run, not an older one.
+// don't survive a reinstall). KovaaK's often already holds the run that just
+// ended: a best equal to `score` means this run beat the old one (`beaten`), and
+// the old one is only known if an earlier run this session saw it (remoteBests).
+const remoteBests = new Map() // scenario (lower-cased) -> KovaaK's best, only from KovaaK's answers
 async function kovaaksBestBefore(scenario, score) {
-  if (!kovaToken) return null
+  const key = scenario.toLowerCase()
+  const known = remoteBests.get(key) ?? null
+  if (!kovaToken) return { best: known, beaten: false }
   // short: the PB pop-up and clip wait on this, and the replay buffer keeps rolling
-  const res = await kovaFetch(`/api/companion/best?scenario=${encodeURIComponent(scenario)}`, { timeout: 3000 })
+  const res = await kovaFetch(`/api/companion/best?scenario=${encodeURIComponent(scenario)}`, { timeout: 3000 }).catch(() => null)
   const best = res?.ok ? (await res.json().catch(() => null))?.best : null
-  // ponytail: a tie with an older PB reads as this run, so it would pop a PB; rare enough
-  return typeof best === 'number' && Math.abs(best - score) >= 0.01 ? best : null
+  if (typeof best !== 'number') return { best: known, beaten: false }
+  // KovaaK's best once this run counts, for the next run's tie case
+  remoteBests.set(key, Math.max(best, score))
+  // ponytail: a tie with an older PB reads as this run, so it counts as beaten; rare enough
+  if (Math.abs(best - score) < 0.01) return { best: known, beaten: known == null || score > known }
+  return { best, beaten: false }
 }
 
 async function onRunFinished(file, attempt = 0) {
@@ -1620,9 +1628,12 @@ async function onRunFinished(file, attempt = 0) {
   const earlier = (progress.localRuns(install, [run.scenario]).get(run.scenario.toLowerCase()) || [])
     .filter((r) => r.ts < run.ts)
     .map((r) => r.score)
-  const remote = s ? s.best : await kovaaksBestBefore(run.scenario, run.score).catch(() => null)
-  const bests = [remote, ...earlier].filter((v) => v != null)
+  const asked = s ? { best: s.best, beaten: false } : await kovaaksBestBefore(run.scenario, run.score)
+  const bests = [asked.best, ...earlier].filter((v) => v != null)
   const prevBest = bests.length ? Math.max(...bests) : null
+  // KovaaK's counted this run as a PB but the best it beat is unknown: local runs
+  // only give a floor, so no gain rather than a made-up one.
+  const pbNoGain = asked.beaten && (prevBest == null || run.score > prevBest) && asked.best == null
   const crossed = s ? progress.rankUpFrom(s.thresholds, prevBest, run.score) : null
   if (crossed) {
     const info = { scenario: s.name, rank: crossed.rank, color: crossed.color || null, score: run.score, over: Math.round((run.score - crossed.score) * 10) / 10 }
@@ -1631,12 +1642,13 @@ async function onRunFinished(file, attempt = 0) {
     if (windowUnseen() && Notification.isSupported())
       new Notification({ title: `${info.rank} on ${info.scenario}`, body: `${info.score}, ${info.over} over the line` }).show()
     win?.webContents.send('rank-up', info)
-  } else if (prevBest != null && run.score > prevBest && loadSettings().pbPopups) {
+  } else if ((pbNoGain || (prevBest != null && run.score > prevBest)) && loadSettings().pbPopups) {
     // A plain PB, same pop-up with the New PB mood. In-app only: unlike a rank-up
     // it happens often enough that an OS notification for each would be noise.
-    win?.webContents.send('pb', { scenario: run.scenario, score: run.score, gain: Math.round((run.score - prevBest) * 10) / 10 })
+    const gain = pbNoGain ? null : Math.round((run.score - prevBest) * 10) / 10
+    win?.webContents.send('pb', { scenario: run.scenario, score: run.score, gain })
   }
-  clipRun(run, prevBest, crossed?.rank || null)
+  clipRun(run, pbNoGain ? null : prevBest, crossed?.rank || null, pbNoGain)
   if (rankSession && rankSession.names[rankSession.idx]?.toLowerCase() === run.scenario.toLowerCase()) {
     rankSession.left -= 1
     if (rankSession.left <= 0) {
@@ -1880,10 +1892,10 @@ async function obsStart() {
   obsNotify()
 }
 
-function clipRun(run, prevBest, rank) {
+function clipRun(run, prevBest, rank, pbNoGain) {
   const cfg = clipCfg()
   if (!cfg.on || !obs) return
-  const reason = clipper.clipReason(cfg.mode, run, prevBest, rank)
+  const reason = clipper.clipReason(cfg.mode, run, prevBest, rank, pbNoGain)
   if (!reason) return
   // A few seconds of the moment after the run, then save.
   setTimeout(async () => {
@@ -1964,7 +1976,7 @@ async function finishClip(job, src) {
     }
   }
   const { reason, run } = job
-  const why = reason.why === 'rankup' ? `${reason.rank}, new` : reason.why === 'pb' ? `PB +${Math.round(reason.gain * 10) / 10}` : 'Run'
+  const why = reason.why === 'rankup' ? `${reason.rank}, new` : reason.why === 'pb' ? (reason.gain == null ? 'PB' : `PB +${Math.round(reason.gain * 10) / 10}`) : 'Run'
   const clip = { file: dest, scenario: run.scenario, score: run.score, why, at: Date.now(), trimmed }
   k.writeFileAtomic(clipsFile(), JSON.stringify([clip, ...loadClips()].slice(0, CLIPS_KEPT), null, 2))
   log('clip saved', dest)

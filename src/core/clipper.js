@@ -16,9 +16,11 @@ const PAD_END_S = 3
 // mode: 'pb' (beat every earlier run of the scenario), 'rankup' (crossed a rank
 // line), 'every'. `prevBest` is the best BEFORE this run, null = first ever run,
 // which isn't a PB - there was nothing to beat (same rule as the session history).
-function clipReason(mode, run, prevBest, rankUp) {
+// `pbNoGain`: KovaaK's says this run is a PB but not what it beat, so no gain.
+function clipReason(mode, run, prevBest, rankUp, pbNoGain = false) {
   if (mode === 'every') return { why: 'run' }
   if (mode === 'rankup') return rankUp ? { why: 'rankup', rank: rankUp } : null
+  if (pbNoGain) return { why: 'pb', gain: null }
   if (prevBest != null && run.score > prevBest) return { why: 'pb', gain: run.score - prevBest }
   return null
 }

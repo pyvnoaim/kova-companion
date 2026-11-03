@@ -305,7 +305,7 @@ window.kova.onRankUp((info) =>
   })
 )
 window.kova.onPb((info) =>
-  showPopup({ title: `New PB on ${shortScenario(info.scenario)}`, line: `${fmt(info.score)}, +${fmt(info.gain)} over your best` })
+  showPopup({ title: `New PB on ${shortScenario(info.scenario)}`, line: info.gain == null ? `${fmt(info.score)}, your best on KovaaK's` : `${fmt(info.score)}, +${fmt(info.gain)} over your best` })
 )
 
 // the graph's hover: a run's score and date

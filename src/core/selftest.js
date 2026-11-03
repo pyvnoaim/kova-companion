@@ -399,6 +399,7 @@ console.log('UI.json validation: ok')
   const run = { scenario: 'VT Pasu Intermediate S5', ts: new Date(2026, 6, 28, 20, 41, 5).getTime(), score: 934, durationMs: 60000 }
   assert.deepEqual(c.clipReason('pb', run, 896, null), { why: 'pb', gain: 38 })
   assert.equal(c.clipReason('pb', run, null, null), null, 'a first-ever run is not a PB')
+  assert.deepEqual(c.clipReason('pb', run, null, null, true), { why: 'pb', gain: null }, 'a KovaaK\'s PB with an unknown old best')
   assert.equal(c.clipReason('pb', run, 940, null), null)
   assert.equal(c.clipReason('rankup', run, 896, null), null, 'a PB without a rank-up, in rank-up mode')
   assert.equal(c.clipReason('rankup', run, 896, 'Jade').rank, 'Jade')
