@@ -276,6 +276,16 @@ async function renderClips() {
         <button class="switch cl-trim" role="switch" aria-checked="${c.trim && c.ffmpeg}" aria-label="Trim to the run"${c.ffmpeg ? '' : ' disabled'}></button>
       </div>
       <div class="setting-row cl-detail">
+        <div class="setting-text"><span class="setting-label">Skip first tries</span>
+          <span class="setting-desc">No clip for your first run of a scenario each time you open KovaaK's.</span></div>
+        <button class="switch cl-skipfirst" role="switch" aria-checked="${!!c.skipFirst}" aria-label="Skip first tries"></button>
+      </div>
+      <div class="setting-row cl-detail">
+        <div class="setting-text"><span class="setting-label">Keep only the latest PB</span>
+          <span class="setting-desc">A new PB clip moves your earlier PB clips of that scenario from this session to the Recycle Bin. Rank-up clips stay.</span></div>
+        <button class="switch cl-replacepb" role="switch" aria-checked="${!!c.replacePb}" aria-label="Keep only the latest PB"></button>
+      </div>
+      <div class="setting-row cl-detail">
         <div class="setting-text"><span class="setting-label">Clips folder</span><span class="setting-desc cl-path">${esc(c.folder)} · one folder per scenario</span></div>
         <button class="cl-folder">Change</button>
         <button class="cl-open">Open</button>
@@ -303,6 +313,8 @@ $('#clips-view').addEventListener('click', async (e) => {
   if (!b || b.disabled) return
   if (b.classList.contains('cl-on')) await window.kova.clipSet({ on: b.getAttribute('aria-checked') !== 'true' })
   else if (b.classList.contains('cl-trim')) await window.kova.clipSet({ trim: b.getAttribute('aria-checked') !== 'true' })
+  else if (b.classList.contains('cl-skipfirst')) await window.kova.clipSet({ skipFirst: b.getAttribute('aria-checked') !== 'true' })
+  else if (b.classList.contains('cl-replacepb')) await window.kova.clipSet({ replacePb: b.getAttribute('aria-checked') !== 'true' })
   else if (b.classList.contains('cl-mode')) await window.kova.clipSet({ mode: b.dataset.m })
   else if (b.classList.contains('cl-settings')) return showView('settings')
   else if (b.classList.contains('cl-folder')) await window.kova.clipPickFolder()

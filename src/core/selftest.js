@@ -404,6 +404,12 @@ console.log('UI.json validation: ok')
   assert.equal(c.clipReason('rankup', run, 896, null), null, 'a PB without a rank-up, in rank-up mode')
   assert.equal(c.clipReason('rankup', run, 896, 'Jade').rank, 'Jade')
   assert.equal(c.clipReason('every', run, 999, null).why, 'run')
+  {
+    const pb = (scenario, at, kind = 'pb') => ({ file: `${scenario}-${at}`, scenario, at, kind })
+    const list = [pb('Gridshot', 50), pb('gridshot', 150), pb('Gridshot', 160, 'rankup'), pb('Other', 170), pb('Gridshot', 180, 'run')]
+    assert.deepEqual(c.replacedClips(list, pb('GRIDSHOT', 200), 100).map((x) => x.file), ['gridshot-150'], 'same scenario, this session, PB clips only')
+    assert.deepEqual(c.replacedClips(list, pb('Gridshot', 200, 'rankup'), 100), [], 'a rank-up clip replaces nothing')
+  }
   assert.equal(
     c.clipPath('D:\\Clips', run, '.mkv'),
     path2.join('D:\\Clips', 'VT Pasu Intermediate S5', 'VT Pasu Intermediate S5 - 934 - 2026-07-28 20.41.05.mkv')

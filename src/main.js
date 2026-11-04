@@ -1625,9 +1625,10 @@ async function onRunFinished(file, attempt = 0) {
   const s = progressBench?.scenarios.find((x) => x.name.toLowerCase() === run.scenario.toLowerCase())
   // The best BEFORE this run: any earlier local run, and kova's verified best
   // (from the loaded benchmark, else asked for this scenario). It can know runs this PC doesn't.
-  const earlier = (progress.localRuns(install, [run.scenario]).get(run.scenario.toLowerCase()) || [])
-    .filter((r) => r.ts < run.ts)
-    .map((r) => r.score)
+  const earlierRuns = (progress.localRuns(install, [run.scenario]).get(run.scenario.toLowerCase()) || []).filter((r) => r.ts < run.ts)
+  const earlier = earlierRuns.map((r) => r.score)
+  // no earlier run of it since the game opened (unknown start: not first)
+  const firstThisSession = gameStartedAt != null && !earlierRuns.some((r) => r.ts >= gameStartedAt)
   const asked = s ? { best: s.best, beaten: false } : await kovaaksBestBefore(run.scenario, run.score)
   const bests = [asked.best, ...earlier].filter((v) => v != null)
   const prevBest = bests.length ? Math.max(...bests) : null
@@ -1648,7 +1649,7 @@ async function onRunFinished(file, attempt = 0) {
     const gain = pbNoGain ? null : Math.round((run.score - prevBest) * 10) / 10
     win?.webContents.send('pb', { scenario: run.scenario, score: run.score, gain })
   }
-  clipRun(run, pbNoGain ? null : prevBest, crossed?.rank || null, pbNoGain)
+  clipRun(run, pbNoGain ? null : prevBest, crossed?.rank || null, pbNoGain, firstThisSession)
   if (rankSession && rankSession.names[rankSession.idx]?.toLowerCase() === run.scenario.toLowerCase()) {
     rankSession.left -= 1
     if (rankSession.left <= 0) {
@@ -1772,7 +1773,7 @@ async function onGameClosed(startedAt) {
 // file -> cut it to the run with ffmpeg if it's installed (else keep it whole) ->
 // file it under the clips folder. The OBS password is kept encrypted like the
 // kova token.
-const CLIP_DEFAULTS = { on: false, host: '127.0.0.1', port: 4455, mode: 'pb', trim: true, folder: null }
+const CLIP_DEFAULTS = { on: false, host: '127.0.0.1', port: 4455, mode: 'pb', trim: true, folder: null, skipFirst: false, replacePb: false }
 const clipCfg = () => ({ ...CLIP_DEFAULTS, ...(loadSettings().clip || {}) })
 const clipFolder = () => clipCfg().folder || path.join(app.getPath('videos'), 'kova companion')
 const obsPassFile = () => path.join(userData(), 'obs-pass.bin')
@@ -1892,9 +1893,10 @@ async function obsStart() {
   obsNotify()
 }
 
-function clipRun(run, prevBest, rank, pbNoGain) {
+function clipRun(run, prevBest, rank, pbNoGain, firstThisSession) {
   const cfg = clipCfg()
   if (!cfg.on || !obs) return
+  if (cfg.skipFirst && firstThisSession) return
   const reason = clipper.clipReason(cfg.mode, run, prevBest, rank, pbNoGain)
   if (!reason) return
   // A few seconds of the moment after the run, then save.
@@ -1977,8 +1979,24 @@ async function finishClip(job, src) {
   }
   const { reason, run } = job
   const why = reason.why === 'rankup' ? `${reason.rank}, new` : reason.why === 'pb' ? (reason.gain == null ? 'PB' : `PB +${Math.round(reason.gain * 10) / 10}`) : 'Run'
-  const clip = { file: dest, scenario: run.scenario, score: run.score, why, at: Date.now(), trimmed }
-  k.writeFileAtomic(clipsFile(), JSON.stringify([clip, ...loadClips()].slice(0, CLIPS_KEPT), null, 2))
+  const clip = { file: dest, scenario: run.scenario, score: run.score, why, kind: reason.why, at: Date.now(), trimmed }
+  const gone = new Set()
+  // Only once the new clip is safely saved, and to the Recycle Bin like a manual delete.
+  if (cfg.replacePb && gameStartedAt != null) {
+    for (const old of clipper.replacedClips(loadClips(), clip, gameStartedAt)) {
+      if (!VIDEO_EXT.has(path.extname(old.file).toLowerCase())) continue
+      try {
+        if (fs.existsSync(old.file)) await shell.trashItem(old.file)
+        gone.add(old.file)
+        log('clip replaced', old.file)
+      } catch (e) {
+        log('clip replace failed', old.file, e?.message) // open in a player: keep it listed
+      }
+    }
+  }
+  // re-read after the awaits: a delete or another save may have landed meanwhile
+  const kept = loadClips().filter((c) => !gone.has(c.file))
+  k.writeFileAtomic(clipsFile(), JSON.stringify([clip, ...kept].slice(0, CLIPS_KEPT), null, 2))
   log('clip saved', dest)
   if (windowUnseen() && Notification.isSupported())
     new Notification({ title: `Clip saved: ${run.scenario}`, body: `${run.score}, ${why}` }).show()
@@ -1992,6 +2010,8 @@ ipcMain.handle('clip:get', async () => {
     on: cfg.on,
     mode: cfg.mode,
     trim: cfg.trim,
+    skipFirst: cfg.skipFirst,
+    replacePb: cfg.replacePb,
     host: cfg.host,
     port: cfg.port,
     hasPassword: !!loadObsPass(),
@@ -2008,6 +2028,8 @@ ipcMain.handle('clip:set', (_e, patch) => {
   if (typeof patch?.on === 'boolean') next.on = patch.on
   if (CLIP_MODES.includes(patch?.mode)) next.mode = patch.mode
   if (typeof patch?.trim === 'boolean') next.trim = patch.trim
+  if (typeof patch?.skipFirst === 'boolean') next.skipFirst = patch.skipFirst
+  if (typeof patch?.replacePb === 'boolean') next.replacePb = patch.replacePb
   if (typeof patch?.host === 'string' && /^[\w.-]{1,253}$/.test(patch.host)) next.host = patch.host
   if (Number.isInteger(patch?.port) && patch.port > 0 && patch.port < 65536) next.port = patch.port
   saveSettings({ ...loadSettings(), clip: next })

@@ -25,6 +25,14 @@ function clipReason(mode, run, prevBest, rankUp, pbNoGain = false) {
   return null
 }
 
+// The earlier PB clips a new PB clip makes redundant: same scenario, saved since
+// `sessionStart`. Rank-up clips stay, a new rank is its own moment.
+function replacedClips(clips, clip, sessionStart) {
+  if (clip.kind !== 'pb') return []
+  const key = clip.scenario.toLowerCase()
+  return clips.filter((c) => c.kind === 'pb' && c.file !== clip.file && c.at >= sessionStart && String(c.scenario).toLowerCase() === key)
+}
+
 // ---- where it goes ---------------------------------------------------------------
 // Windows filename rules: no <>:"/\|?* or control chars, no trailing dot/space,
 // and not a reserved device name. Scenario names are free text, so all of it.
@@ -151,4 +159,4 @@ function obsConnect({ host, port, password }, { onEvent = () => {}, onClose = ()
   })
 }
 
-module.exports = { clipReason, clipPath, safeName, trimFromEndS, ffmpegArgs, obsAuth, obsConnect, PAD_START_S, PAD_END_S }
+module.exports = { clipReason, replacedClips, clipPath, safeName, trimFromEndS, ffmpegArgs, obsAuth, obsConnect, PAD_START_S, PAD_END_S }
